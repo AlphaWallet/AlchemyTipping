@@ -1,17 +1,13 @@
 package tapi.api;
 
+import com.google.gson.Gson;
 import io.reactivex.Observable;
 import io.reactivex.Single;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.schedulers.Schedulers;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
-import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
-import org.bouncycastle.crypto.params.AsymmetricKeyParameter;
-import org.bouncycastle.crypto.util.SubjectPublicKeyInfoFactory;
-import org.bouncycastle.jcajce.provider.digest.Keccak;
 import org.jetbrains.annotations.Nullable;
-import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -21,7 +17,9 @@ import org.springframework.util.StreamUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import org.web3j.abi.*;
+import org.web3j.abi.FunctionEncoder;
+import org.web3j.abi.FunctionReturnDecoder;
+import org.web3j.abi.TypeReference;
 import org.web3j.abi.datatypes.*;
 import org.web3j.abi.datatypes.generated.Bytes32;
 import org.web3j.abi.datatypes.generated.Uint256;
@@ -29,8 +27,10 @@ import org.web3j.crypto.*;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.DefaultBlockParameter;
 import org.web3j.protocol.core.DefaultBlockParameterName;
-import org.web3j.protocol.core.methods.request.EthFilter;
-import org.web3j.protocol.core.methods.response.*;
+import org.web3j.protocol.core.methods.response.EthCall;
+import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
+import org.web3j.protocol.core.methods.response.EthSendTransaction;
+import org.web3j.protocol.core.methods.response.EthTransaction;
 import org.web3j.protocol.http.HttpService;
 import org.web3j.rlp.RlpEncoder;
 import org.web3j.rlp.RlpList;
@@ -38,11 +38,7 @@ import org.web3j.rlp.RlpString;
 import org.web3j.rlp.RlpType;
 import org.web3j.utils.Bytes;
 import org.web3j.utils.Numeric;
-import tapi.api.crypto.NFTAttestation;
-import tapi.api.crypto.SignedIdentifierAttestation;
-import tapi.api.crypto.SignedNFTAttestation;
 import tapi.api.crypto.WrappedSignedIdentifierAttestation;
-import tapi.api.crypto.core.SignatureUtility;
 
 import javax.servlet.http.HttpServletResponse;
 import java.io.*;
@@ -55,7 +51,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.security.SignatureException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -63,8 +58,6 @@ import java.util.concurrent.TimeUnit;
 import static java.lang.Thread.sleep;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static org.web3j.protocol.core.methods.request.Transaction.createEthCallTransaction;
-import static org.web3j.tx.Contract.staticExtractEventParameters;
-import static tapi.api.CryptoFunctions.sigFromByteArray;
 
 @Controller
 @RequestMapping("/")
@@ -163,7 +156,8 @@ public class APIController
     private BigDecimal getGasPriceGWEI()
     {
         BigInteger gasPrice = BigInteger.valueOf(2000000000L);
-        try {
+        try
+        {
             gasPrice = getWeb3j().ethGasPrice().send().getGasPrice();
         }
         catch (Exception e)
@@ -273,7 +267,7 @@ public class APIController
     {
         return new Function("commitNFT",
                 Arrays.asList(getERC721Array(tokens),
-                              getPaymentTokenArray(paymentToken),
+                        getPaymentTokenArray(paymentToken),
                         new Utf8String(identifier)),
                 Arrays.<TypeReference<?>>asList(new TypeReference<Bool>() {}));
     }
@@ -293,7 +287,7 @@ public class APIController
                 Arrays.<TypeReference<?>>asList(new TypeReference<Bool>() {}));
     }
 
-    private static Function tipBytes(String identifier)
+    private static Function tipFunction(String identifier)
     {
         return new Function("createTip1",
                 Arrays.asList(new Utf8String(identifier)),
@@ -624,80 +618,160 @@ public class APIController
         return new String(buffer);
     }
 
-    //display NFT creation dapp with upload & title
-    //push transaction
-    //populate!
+    //1. This will get twittername, Base token amount and ERC20 amount
 
     @GetMapping(value = "/")
     public String createTip(@RequestHeader("User-Agent") String agent, Model model)
     {
-        // TODO: maintain background thread which keeps the current gas value to minimise user wait
-
-        return "createNft";
+        return "create_tip";
     }
-
-    // Mint NFT
-    @GetMapping(value = "/generateNFT/{nftName}/{fileHash}/{addr}")
-    public String handlePushNFTCreateTx(@PathVariable("nftName") String nftName,
-                                     @PathVariable("fileHash") String fileHash,
-                                     @PathVariable("addr") String userAddr,
-                                     Model model) {
-        Long currentTime = System.currentTimeMillis();
-        Long lastPush = addressInteractions.get(userAddr);
-        if (lastPush == null || (currentTime - lastPush) > 1000*5)
-        {
-            addressInteractions.put(userAddr, currentTime);
-            String transactionHash = pushCreateNFTTx(userAddr, fileHash, nftName);
-            model.addAttribute("nft_hash", transactionHash);
-        }
-        return "showCompletedNFT";
-    }
-
 
     ///////////////////////////////////////////////////////
     // Create Tip Handling
     ///////////////////////////////////////////////////////
 
-    //1. Create tip offer.
-    @GetMapping(value = "/createOffer/{address}")
-    public @ResponseBody
-    String createCommitment(@PathVariable("address") String address,
-                            Model model) {
-        //fetch all rinkeby tokens
-        //String tokens = fetchTokensFromOpensea(address);
-        //form JSON
-        JSONObject result = new JSONObject(tokens);
-        JSONArray assets = result.getJSONArray("assets");
-        StringBuilder tokenList = new StringBuilder();
+    //2. Verify User and test tip can be matched. If good, offer 'create tip'. If bad, show error page
+    @GetMapping(value = "/createTipTx/{username}/{eth_amount}/{erc20_addr}/{erc20_amount}")
+    String createTipTx(@PathVariable("username") String userName,
+                       @PathVariable("eth_amount") String ethAmount,
+                       @PathVariable("erc20_addr") String erc20Addr,
+                       @PathVariable("erc20_amount") String erc20Amount,
+                       Model model) {
 
-        String initHTML = loadFile("templates/pickTokenForCommit.html");
+        //fetch Twitter data
+        TwitterData data = lookupTwitterName(userName);
 
-        if (assets.length() > 0)
+        if (data == null)
         {
-            for (int i = 0; i < assets.length(); i++)
+            model.addAttribute("userinput", userName);
+            model.addAttribute("unknownUser", userName);
+            return "create_tip";
+        }
+
+        BigDecimal offerVal = BigDecimal.ZERO;
+        BigDecimal erc20Val = BigDecimal.ZERO;
+        try {
+            //check the eth amount:
+            offerVal = new BigDecimal(ethAmount);
+            offerVal = offerVal.multiply(WEI_FACTOR);
+            if (WalletUtils.isValidAddress(erc20Addr))
             {
-                JSONObject thisAsset = assets.getJSONObject(i);
-                JSONObject assetContract = assets.getJSONObject(i).getJSONObject("asset_contract");
-                tokenList.append("<br/>Token Name: <b>").append(thisAsset.get("name")).append("</b><br/>");
-                tokenList.append("Token Address:<br/>").append(assetContract.get("address"))
-                        .append("<br/>Token ID: ").append(thisAsset.get("token_id")).append("<br/>");
+                erc20Val = new BigDecimal(erc20Amount).multiply(WEI_FACTOR); //TODO: Grab decimal value of erc20 and validate
             }
+        }
+        catch (Exception e)
+        {
+            e.printStackTrace();
+        }
+
+        if (offerVal.equals(BigDecimal.ZERO) && erc20Val.equals(BigDecimal.ZERO))
+        {
+            model.addAttribute("userinput", userName);
+            model.addAttribute("requiretip", "error");
+            return "create_tip";
+        }
+
+        //create transaction
+        byte[] txBytes;
+        String encodedFunction;
+        String twitterId = "https://twitter.com/" + userName + " " + data.id;
+
+        if (erc20Val.equals(BigDecimal.ZERO))
+        {
+            Function func = tipFunction(twitterId);
+            encodedFunction = FunctionEncoder.encode(func);
         }
         else
         {
-            tokenList.append("You have no NFT Tokens on Rinkeby. Use the Minting tool.");
+            PaymentToken pt = new PaymentToken(new Address(erc20Addr), new Uint256(erc20Val.toBigInteger()), new DynamicBytes(Numeric.hexStringToByteArray("0x00")));
+            List<PaymentToken> pTokens = new ArrayList<>(Collections.singletonList(pt));
+            encodedFunction = tipBytes(pTokens, twitterId);
         }
 
-        return initHTML.replace("[TOKENLIST]", tokenList.toString());
+        txBytes = Numeric.hexStringToByteArray(Numeric.cleanHexPrefix(encodedFunction));
+
+        //otherwise show twitter
+        model.addAttribute("profilepic", data.profile_image_url);
+        model.addAttribute("username", data.username);
+        model.addAttribute("id", data.id);
+        model.addAttribute("eth", offerVal.toBigInteger().toString());
+        model.addAttribute("eth_display", ethAmount);
+        model.addAttribute("tx_bytes", "'" + Numeric.toHexString(txBytes) + "'");
+        model.addAttribute("contract_address", "'" + CONTRACT + "'");
+        model.addAttribute("gas_price", currentGasPrice.multiply(GWEI_FACTOR).toBigInteger().toString());
+        model.addAttribute("gas_limit", GAS_LIMIT_CONTRACT.toString());
+        model.addAttribute("expected_id", CHAIN_ID);
+        model.addAttribute("expected_text", "'" + CHAIN_NAME + "'");
+
+        if (erc20Val.compareTo(BigDecimal.ZERO) > 0)
+        {
+            model.addAttribute("erc20addr", erc20Addr);
+            model.addAttribute("erc20val", erc20Val.toBigInteger().toString());
+        }
+        else
+        {
+            model.addAttribute("erc20addr", "");
+            model.addAttribute("erc20val", "0");
+        }
+
+        return "processTransaction";
     }
 
-    //2. User picked a token, push an 'approve' function for the RETORT CONTRACT to be able to move the NFT
-    @GetMapping(value = "/generateApprove/{addr}/{tokenAddr}/{tokenId}")
-    public String generateApprove(@PathVariable("tokenAddr") String tokenAddr,
-                                         @PathVariable("tokenId") String tokenId,
-                                         @PathVariable("addr") String userAddr,
-                                         Model model) {
-        BigDecimal currentGasPrice = getGasPriceGWEI();
+    private class TwitterData
+    {
+        public String profile_image_url;
+        public String name;
+        public String id;
+        public String username;
+    }
+
+    private class Encapsulate
+    {
+        TwitterData data;
+    }
+
+    private TwitterData lookupTwitterName(String twitterName)
+    {
+        OkHttpClient client = buildClient();
+        String urlCall = "https://api.twitter.com/2/users/by/username/[USERNAME]?user.fields=profile_image_url".replace("[USERNAME]", twitterName);
+
+        try
+        {
+            //okhttp3.RequestBody requestBody = okhttp3.RequestBody.create(payload, HttpService.JSON_MEDIA_TYPE);
+            Request request = new Request.Builder()
+                    .url(urlCall)
+                    .method("GET", null)
+                    .addHeader("Content-Type", "application/x-www-form-urlencoded")
+                    .addHeader("Authorization", "Bearer AAAAAAAAAAAAAAAAAAAAALVlUAEAAAAAsS9ZXEMt64%2F1ZNopo79kb%2FreXY4%3DNN5w5MDZtYftaMnw6cZVsjKacyGSs5TcdaMiAIzAAd2s7E36gI")
+                    .build();
+
+            okhttp3.Response response = client.newCall(request).execute();
+            //get result
+            String result = response.body() != null ? response.body().string() : "";
+
+            Encapsulate data = new Gson().fromJson(result, Encapsulate.class);
+            return data.data;
+        }
+        catch (Exception e)
+        {
+
+        }
+
+        return null;
+    }
+
+    //3b. Error, not enough funds
+    @GetMapping(value = "/notenoughfunds/")
+    public String notEnoughFunds(Model model) {
+        return "fund_error";
+    }
+
+    //3a. Return from Signing the transaction - now push it
+    @GetMapping(value = "/generateTip/{addr}/{tokenAddr}/{tokenId}")
+    public String generateTip(@PathVariable("tokenAddr") String tokenAddr,
+                              @PathVariable("tokenId") String tokenId,
+                              @PathVariable("addr") String userAddr,
+                              Model model) {
 
         //form push transaction
         Function approveNFTMove = approveNFT(CONTRACT, new BigInteger(tokenId));
@@ -720,24 +794,19 @@ public class APIController
     //3. Wait for approve transaction to be written to the blockchain,
     //   Then ask the user for the identity they wish to autograph the transaction
     //   and specify how much they offer to the identity for their autograph
-    @GetMapping(value = "/waitForApprove/{resulthash}/{tokenAddr}/{tokenId}")
-    public String waitForApprove(@PathVariable("tokenAddr") String tokenAddr,
-                                 @PathVariable("tokenId") String tokenId,
-                                 @PathVariable("resulthash") String resultHash,
-                                 Model model) {
-        BigDecimal currentGasPrice = getGasPriceGWEI();
+    @GetMapping(value = "/waitForTip/{resulthash}")
+    public String waitForTip(@PathVariable("resulthash") String resultHash,
+                             Model model) {
 
         //wait for transaction to be written to block
         waitForTransactionReceipt(resultHash);
 
-        model.addAttribute("token_address", "'" + tokenAddr + "'");
-        model.addAttribute("token_id", "'" + tokenId + "'");
-        model.addAttribute("gas_price", currentGasPrice.multiply(GWEI_FACTOR).toBigInteger().toString());
+        model.addAttribute("result_hash", "'" + resultHash + "'");
 
-        return "addIdentifier";
+        return "tipCreated";
     }
 
-
+/*
     //4. Generate the commit function.
     //   This function specifies which token will be committed and the text identifier (eg @kingmidas). The offer price is bundled in the transaction 'value'
     //   function commitNFT(ERC721Token[] memory nfts, string memory identifier) payable external returns (uint256 commitmentId)
@@ -829,9 +898,9 @@ public class APIController
         return "commitmentComplete";  // Display the transaction hash and notify user commitment is complete
     }
 
-    /********
-     * End Commit flow
-     ********/
+    //
+    // End Commit flow
+    //
 
 
 
@@ -1088,11 +1157,15 @@ public class APIController
         return "transformComplete";
     }
 
-    /********
-     * End Transmogrify flow
-     ********/
+
+    //
+    // End Transmog flow
+    //
 
 
+ */
+
+    /*
     private String pushCreateNFTTx(String destinationAddr, final String imageHash, final String name) {
         ECKeyPair adminKey = getAdminKeyPair();
         //form push transaction
@@ -1142,6 +1215,8 @@ public class APIController
         return txHashStr;
     }
 
+     */
+
     private DefaultBlockParameter getBlockNumber(String transactionHash)
     {
         DefaultBlockParameter startBlock = DefaultBlockParameterName.EARLIEST;
@@ -1160,6 +1235,7 @@ public class APIController
         return new Event("GenerateTokenId", paramList);
     }
 
+    /*
     private EthFilter getEventFilter(Event event, DefaultBlockParameter startBlock, String destinationAddr)
     {
         final org.web3j.protocol.core.methods.request.EthFilter filter =
@@ -1172,7 +1248,7 @@ public class APIController
         filter.addSingleTopic("0x" + TypeEncoder.encode(new Address(destinationAddr)));
 
         return filter;
-    }
+    }*/
 
     private Event getCommitEvent()
     {
@@ -1195,6 +1271,7 @@ public class APIController
         return new Event("Transmogrify", paramList);
     }
 
+    /*
     private EthFilter getCommitEventFilter(Event event, DefaultBlockParameter startBlock, String committerAddress)
     {
         final org.web3j.protocol.core.methods.request.EthFilter filter =
@@ -1207,7 +1284,7 @@ public class APIController
         filter.addSingleTopic("0x" + TypeEncoder.encode(new Address(committerAddress)));
 
         return filter;
-    }
+    }*/
 
 
 
@@ -1318,7 +1395,7 @@ public class APIController
 
     @GetMapping(value = "/prepareToGenerate/{fileHash}")
     public String prepareToGenerate(@PathVariable("fileHash") String fileHash,
-                                        Model model) {
+                                    Model model) {
         model.addAttribute("fileHash", fileHash);
         return "finalCreateNFT";
     }
@@ -1443,7 +1520,7 @@ public class APIController
         return jsonResult;
     }
 
-    private EthFilter getCommitEventFilterByName(Event event, DefaultBlockParameter startBlock, String forIdentifier)
+    /*private EthFilter getCommitEventFilterByName(Event event, DefaultBlockParameter startBlock, String forIdentifier)
     {
         final org.web3j.protocol.core.methods.request.EthFilter filter =
                 new org.web3j.protocol.core.methods.request.EthFilter(
@@ -1475,7 +1552,7 @@ public class APIController
         filter.addSingleTopic(Numeric.toHexStringWithPrefixZeroPadded(commitId, 64)); // filter by this commitId - note there may be multiple logs
 
         return filter;
-    }
+    }*/
 
 
     //Utility functions
@@ -1521,7 +1598,7 @@ public class APIController
         createJsonMetadataForTransmogrify(name, md5image, newTokenId);
     }
 
-    private void testEvents()
+    /*private void testEvents()
     {
         final Web3j web3j = getWeb3j();
         TextOverlay textOverlay = new TextOverlay();
@@ -1564,7 +1641,7 @@ public class APIController
         } catch (Exception e) {
             e.printStackTrace();
         }
-    }
+    }*/
 
 
 //    private String testImage() {

@@ -4,7 +4,7 @@
 <head>
     <!-- Latest compiled and minified CSS -->
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous"/>
-    <title>Stormbird</title>
+    <title>Alchemy</title>
     <style>
         #bodyWrap
         {
@@ -22,34 +22,43 @@
         #contractAddress {
             width: 50%;
         }
+        p.ex {
+             color: red;
+        }
     </style>
 </head>
 <body>
 <div class="jumbotron">
-    <h1>Stormbird Crypto generator</h1>
+    <h1>Alchemy Twitter Tipping</h1>
 </div>
 <div id="bodyWrap">
-    <div th:if="${amountError}">
-        Invalid send amount. Pick amount from eg 0.01 to 5 Eth
-    </div>
     <div th:if="${scriptError}">
         Script is too short.
     </div>
-    <p th:text="${user}" />
+    <h4>Twitter Handle</h4>
+    <div th:if="${unknownUser}">
+        <p class="ex">Unknown Twitter User, try a different name</p>
+    </div>
+    <input id="identifier" type="text" name="identifier" th:value="${userinput}" onkeyup="return forceLower(this);"/>
+    <br/>
+    <br/>
     <input type="hidden" name="paramName" value="paramName"/>
-    <h4>Gift Amount: Eth (eg 0.01 -> )</h4>
+    <h4>Tip Amount: Eth (eg 0.01 -> )</h4>
+    <div th:if="${requiretip}">
+        <p class="ex">Require eth value or ERC20 token</p>
+    </div>
     <input id="ethAmount" type="number" name="ethAmount"/>
     <br/>
     <br/>
-    <h4>Custom Redeem Gas Price (leave for default -</h4>
-    <h4>    this determines how quickly the receiver will get their reward)</h4>
-    <input id="gasPrice" type="number" name="gasPrice" th:value="${gas_price}" />
-    <h4>Gift Amount: DAI (eg 1.00 -> )</h4>
-    <input id="daiAmount" type="number" name="daiAmount"/>
+    <h4>ERC20 Token Tip Address (leave blank for no ERC20)</h4>
+    <!-- <input id="erc20addr" type="text" name="erc20address" th:value="${gas_price}" /> -->
+    <input id="erc20Address" type="text" name="erc20Address"/>
+    <h4>ERC20 Amount (decimal corrected): (eg 1.00 -> )</h4>
+    <input id="erc20Amount" type="number" name="erc20Amount"/>
     <br/>
     <br/>
-    <div><button class="btn-lg btn-primary" th:attr="onclick='generateCode();'">Generate Code</button></div>
-    <h4>Start using your script on AlphaWallet: </h4>
+    <div><button class="btn-lg btn-primary" th:attr="onclick='generateCode();'">Validate Tip</button></div>
+    <h4>Don't have an Ethereum wallet? Use AlphaWallet: </h4>
     <p id="download_app">
         <a href="https://play.google.com/store/apps/details?id=io.stormbird.wallet">
             <img width="117" height="40" alt="Google Playstore"
@@ -62,22 +71,42 @@
     </p>
 </div>
 <script>
-    function generateCode()
+    function connect () {
+        if (typeof ethereum !== 'undefined') {
+           ethereum.enable()
+            .catch(console.error)
+        }
+    }
+
+    function createOffer()
     {
         var account = web3.eth.coinbase;
-        var eth = document.getElementById("ethAmount").value;
-        var dai = document.getElementById("daiAmount").value;
-        var gas = document.getElementById("gasPrice").value;
+        if (!account) return connect()
+        window.location.replace('/createOffer/' + account);
+    }
 
-        //TODO: Add proper error handling
-        if (eth == '')
-        {
-            window.location.replace('/initTokenUSDC/' + dai + '/' + gas + '/' + account);
-        }
-        else
-        {
-            window.location.replace('/initToken/' + eth + '/' + gas + '/' + account);
-        }
+    function signOffer()
+    {
+        var account = web3.eth.coinbase;
+        if (!account) return connect()
+        window.location.replace('/signOffer/' + account);
+    }
+
+    function generateCode()
+    {
+        //var account = web3.eth.coinbase;
+        //if (!account) return connect()
+        var twitterName = document.getElementById("identifier").value;
+        var eth = document.getElementById("ethAmount").value;
+        var erc20Addr = document.getElementById("erc20Address").value;
+        var erc20Amount = document.getElementById("erc20Amount").value;
+
+        if (eth === '') eth = 'VV';
+        if (erc20Addr === '') erc20Addr = 'VV';
+        if (erc20Amount === '') erc20Amount = 'VV';
+
+        //createTipTx/{username}/{eth_amount}/{erc20_addr}/{erc20_amount}
+        window.location.replace('/createTipTx/' + twitterName + '/' + eth + '/' + erc20Addr + '/' + erc20Amount );
     }
 </script>
 </body>

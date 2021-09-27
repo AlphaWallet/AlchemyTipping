@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:th="http://www.thymeleaf.org">
+<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no"/>
+<head>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous"/>
+    <title>Alchemy</title>
+    <style>
+        #bodyWrap
+        {
+            margin-left: 3%;
+            margin-bottom: 3%;
+            margin-right: 3%;
+        }
+        h1{
+            text-align: center;
+        }
+        #script {
+            width:90%;
+            height: 500px;
+        }
+        #contractAddress {
+            width: 50%;
+        }
+        p.ex {
+             color: red;
+        }
+    </style>
+</head>
+
+<body th:attr="onload='components(' + ${erc20val} + ')'">
+<div class="jumbotron">
+    <h1>Alchemy Twitter Tipping</h1>
+    <div id="bodyWrap">
+        <h4>Twitter User: </h4>
+        <div>
+            <img th:src="${profilepic}" th:alt="${username}" />
+            <p id="username" th:text="${username}" />
+        </div>
+
+        <div id="ethlayout">
+            <h4>Tip Amount: Eth: </h4>
+            <p id="eth_amount" th:text="${eth_display}" />
+        </div>
+
+        <div id="erc20layout" >
+            <h4>Tip Amount: ERC20: </h4>
+            <p id="erc20" th:text="${erc20addr}"></p>
+            <p id="erc20val" th:text="${erc20val}"/>
+        </div>
+
+    </div>
+</div>
+<br/>
+<script>
+
+        function components(erc20val)
+        {
+            var erc20layout = document.getElementById('erc20layout');
+
+            if (erc20val == 0)
+            {
+                erc20layout.style.display = 'none' ;
+            }
+        }
+
+        function createTx(txData, contractAddr, eth_value, txGasPrice, txGasLimit, expectedId, expectedChainText )
+        {
+            var account = web3.eth.coinbase;
+            if (!account) return connect()
+            var networkId = web3.version.network;
+
+            if (networkId != expectedId)
+            {
+               alert("Please set your dapp browser to use the " + expectedChainText + " Network.");
+            }
+            else
+            {
+               web3.eth.sendTransaction({
+                    from: account,
+                    to: contractAddr,
+                    value: eth_value,
+                    gasLimit: txGasLimit,
+                    gasPrice: txGasPrice,
+                    data: txData
+                },function(error, result){
+                if(!error)
+                    window.location.replace('/waitForTip/' + result);
+                else
+                    window.location.replace('/errorFinal/' + error);
+                });
+            }
+        }
+
+    </script>
+<div><button class="btn-lg btn-primary" th:attr="onclick='createTx(' + ${tx_bytes} + ',' + ${contract_address} + ',' + ${eth} + ',' + ${gas_price} +
+                                ',' + ${gas_limit} + ',' + ${expected_id} + ',' + ${expected_text} + ');'">Create Tip</button></div>
+
+
+</body>
+
+</html>
