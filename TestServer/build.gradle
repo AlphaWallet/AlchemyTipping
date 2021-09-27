@@ -1,0 +1,52 @@
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath("org.springframework.boot:spring-boot-gradle-plugin:1.5.6.RELEASE")
+    }
+}
+
+apply plugin: 'java'
+apply plugin: 'eclipse'
+apply plugin: 'org.springframework.boot'
+
+jar {
+    baseName = 'twittertipserver'
+}
+
+repositories {
+    mavenCentral()
+}
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+dependencies {
+    compile("org.springframework.boot:spring-boot-starter-thymeleaf")
+    implementation 'org.bouncycastle:bcprov-jdk15on:1.68'
+    implementation 'org.bouncycastle:bcpkix-jdk15on:1.68'
+    compile 'com.braintreepayments.gateway:braintree-java:2.73.0'
+    //compile group: 'org.web3j', name: 'core', version: '2.3.1'
+    compile "io.reactivex.rxjava2:rxjava:2.2.10"
+    implementation 'org.web3j:core:4.8.4'
+    testCompile("org.springframework.boot:spring-boot-starter-test")
+    compile group: 'com.googlecode.json-simple', name: 'json-simple', version: '1.1.1'
+    //compile 'com.github.kittinunf.fuel:fuel:1.12.0'
+    // https://mvnrepository.com/artifact/org.xerial/sqlite-jdbc
+    compile group: 'org.xerial', name: 'sqlite-jdbc', version: '3.7.2'
+    compile group: 'com.github.mkopylec', name: 'recaptcha-spring-boot-starter', version: '2.3.1'
+    // https://mvnrepository.com/artifact/org.fusesource.jdbm/jdbm
+    compile group: 'org.fusesource.jdbm', name: 'jdbm', version: '2.0.1'
+}
+
+apply plugin: 'application'
+mainClassName = 'tapi.api.Application'
+
+bootRun {
+    main = 'tapi.api.Application'
+}
+
+springBoot {
+    executable = true
+}

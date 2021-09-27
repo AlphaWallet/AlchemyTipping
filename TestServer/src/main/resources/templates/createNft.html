@@ -1,0 +1,83 @@
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:th="http://www.thymeleaf.org">
+<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no"/>
+<head>
+    <!-- Latest compiled and minified CSS -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous"/>
+    <title>Create NFT</title>
+    <style>
+        #bodyWrap
+        {
+            margin-left: 3%;
+            margin-bottom: 3%;
+            margin-right: 3%;
+        }
+        h1{
+            text-align: center;
+        }
+        #script {
+            width:90%;
+            height: 500px;
+        }
+        #contractAddress {
+            width: 50%;
+        }
+        #butt {
+            float: right;
+        }
+</style>
+</head>
+<body>
+<div class="jumbotron">
+    <h1>Stormbird NFT Minter</h1>
+</div>
+<div id="bodyWrap">
+    <div th:if="${typename}">
+        NFT should have a name
+    </div>
+    <div th:if="${uploadpicture}">
+        NFT has no image
+    </div>
+    <p id="resolvedHash" th:text="${fileHash}" />
+    <p id="nfthash" th:text="${nft_hash}" />
+    <input type="hidden" name="paramName" value="paramName"/>
+
+    <br/>
+    <h4>Upload Image for NFT:</h4>
+    <div id="log"></div>
+    <form method="POST" action="/upload" enctype="multipart/form-data">
+        <p id="input_file">
+            <input type="file" name="file" />
+        <br/>
+            <input class="btn-lg btn-primary" type="submit" value="Upload" />
+        </p>
+    </form>
+    <!--<div id="butt"><button class="btn-lg btn-primary" onclick='createOffer();'>Create Offer</button></div>
+    <hr/>
+    <br/>
+    <div id="butt2"><button class="btn-lg btn-primary" onclick='signOffer();'>Sign Offer</button></div>
+    <br/>-->
+</div>
+<script>
+    function connect () {
+        if (typeof ethereum !== 'undefined') {
+           ethereum.enable()
+            .catch(console.error)
+        }
+    }
+
+    function createOffer()
+    {
+        var account = web3.eth.coinbase;
+        if (!account) return connect()
+        window.location.replace('/createOffer/' + account);
+    }
+
+    function signOffer()
+    {
+        var account = web3.eth.coinbase;
+        if (!account) return connect()
+        window.location.replace('/signOffer/' + account);
+    }
+</script>
+</body>
+</html>

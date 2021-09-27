@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:th="http://www.thymeleaf.org">
+<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no"/>
+    <head>
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous"/>
+        <title>Stormbird</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+        <style>
+            p.l1 {
+                margin-left: 30px;
+            }
+        </style>
+    </head>
+
+    <!--<body th:attr="onload='showQR(' + ${pocketUrl} + ')'">-->
+    <body th:attr="onload='showQR(' + ${pocketUrl} + ',' + ${txHash} + ')'">
+        <div class="jumbotron">
+            <h1>Pocket created!</h1>
+        </div>
+        <br/>
+        <script>
+        function showQR(pocketUrl, txHash) {
+
+            var qrc = new QRCode(document.getElementById("qrcode"), {
+                    text: pocketUrl,
+                    width: 200,
+                    height: 200,
+            });
+
+            document.getElementById("url").innerHTML = pocketUrl;
+        }
+        </script>
+
+        <div id="tx_hash"></div>
+        <br/>
+        <div id="url"></div>
+        <br/>
+        <br/>
+        <p class="l1" id="qrcode"></p>
+        <br/>
+
+    </body>
+
+</html>
