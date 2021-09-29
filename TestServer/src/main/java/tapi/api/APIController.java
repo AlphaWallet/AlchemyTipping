@@ -7,6 +7,10 @@ import io.reactivex.disposables.Disposable;
 import io.reactivex.schedulers.Schedulers;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
+import org.bouncycastle.crypto.params.AsymmetricKeyParameter;
+import org.bouncycastle.crypto.util.SubjectPublicKeyInfoFactory;
+import org.bouncycastle.jcajce.provider.digest.Keccak;
 import org.jetbrains.annotations.Nullable;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,9 +21,8 @@ import org.springframework.util.StreamUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import org.web3j.abi.FunctionEncoder;
-import org.web3j.abi.FunctionReturnDecoder;
-import org.web3j.abi.TypeReference;
+import org.springframework.web.servlet.view.RedirectView;
+import org.web3j.abi.*;
 import org.web3j.abi.datatypes.*;
 import org.web3j.abi.datatypes.generated.Bytes32;
 import org.web3j.abi.datatypes.generated.Uint256;
@@ -27,10 +30,8 @@ import org.web3j.crypto.*;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.DefaultBlockParameter;
 import org.web3j.protocol.core.DefaultBlockParameterName;
-import org.web3j.protocol.core.methods.response.EthCall;
-import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
-import org.web3j.protocol.core.methods.response.EthSendTransaction;
-import org.web3j.protocol.core.methods.response.EthTransaction;
+import org.web3j.protocol.core.methods.request.EthFilter;
+import org.web3j.protocol.core.methods.response.*;
 import org.web3j.protocol.http.HttpService;
 import org.web3j.rlp.RlpEncoder;
 import org.web3j.rlp.RlpList;
@@ -38,8 +39,9 @@ import org.web3j.rlp.RlpString;
 import org.web3j.rlp.RlpType;
 import org.web3j.utils.Bytes;
 import org.web3j.utils.Numeric;
-import tapi.api.crypto.WrappedSignedIdentifierAttestation;
+import tapi.api.crypto.CoSignedIdentifierAttestation;
 
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.*;
 import java.math.BigDecimal;
@@ -51,6 +53,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SignatureException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -58,6 +61,17 @@ import java.util.concurrent.TimeUnit;
 import static java.lang.Thread.sleep;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static org.web3j.protocol.core.methods.request.Transaction.createEthCallTransaction;
+import static org.web3j.tx.Contract.staticExtractEventParameters;
+import static tapi.api.CryptoFunctions.sigFromByteArray;
+
+import tapi.api.crypto.SignedIdentifierAttestation;
+import tapi.api.crypto.core.SignatureUtility;
+import twitter4j.Twitter;
+import twitter4j.TwitterFactory;
+import twitter4j.auth.AccessToken;
+import twitter4j.auth.RequestToken;
+import twitter4j.conf.Configuration;
+import twitter4j.conf.ConfigurationBuilder;
 
 @Controller
 @RequestMapping("/")
@@ -91,6 +105,10 @@ public class APIController
     public final static String TWITTER_FAKE_UID = "12345678";
     public final static String TWITTER_URL = "https://twitter.com/";
 
+    private final Map<String, CoSignedIdentifierAttestation> attestationMap = new ConcurrentHashMap<>();
+    private final Map<String, Map<BigInteger, Tip>> tipUserMap = new ConcurrentHashMap<>();
+    private final Map<String, TwitterData> twitterIdMap = new ConcurrentHashMap<>();
+
     @Nullable
     private Disposable gasFetchDisposable;
 
@@ -102,14 +120,16 @@ public class APIController
         String[] sep = keys.split(",");
         INFURA_KEY = sep[0];
         CONTRACT_KEY = sep[1];
+        //deploymentAddress = "http://192.168.50.9:8081/";
         if (sep.length > 2 && !sep[2].equals("END_DATA"))
         {
             deploymentAddress = sep[2];
         }
         else
         {
-            deploymentAddress = "http://192.168.1.117:8081/";
+            deploymentAddress = "http://192.168.50.9:8081/";
         }
+
         AttestationHandler.setupKeys();
         //start gas price cycle
         gasFetchDisposable = Observable.interval(0, 30, TimeUnit.SECONDS)
@@ -280,7 +300,7 @@ public class APIController
                 Arrays.<TypeReference<?>>asList(new TypeReference<Bool>() {}));
     }
 
-    private static Function collectTip(BigInteger commitmentId, WrappedSignedIdentifierAttestation wrappedAttestation)
+    private static Function collectTip(BigInteger commitmentId, CoSignedIdentifierAttestation wrappedAttestation)
     {
         return new Function("collectTip",
                 Arrays.asList(new Uint256(commitmentId), new DynamicBytes(wrappedAttestation.getDerEncoding())),
@@ -296,9 +316,7 @@ public class APIController
 
     //This is a ghastly hack, but since this part of web3j is broken this is the most expedient fix.
     //Implementing this in web3js you'd need to call like this:
-    //[["Token address","Token Id","0x00"]],"Twitter ID" <-- NB we don't yet implement the 0x00 part. This is pre-auth and will be an auth
-    //eg:
-    //[["0xa567f5a165545fa2639bbda79991f105eadf8522","4","0x00"]],"@kingmidas"
+    //[["Token address","Token amount","0x00"]],"Twitter ID" <-- NB we don't yet implement the 0x00 part. This is pre-auth and will be an auth
     private static String tipBytes(List<PaymentToken> tokens, String identifier)
     {
         String zeroes = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -307,23 +325,7 @@ public class APIController
         idHex = idHex + zeroes;
         idHex = idHex.substring(0, ethWords*64);
 
-        /*
-        0x9218e0ee
-        0000000000000000000000000000000000000000000000000000000000000040
-        0000000000000000000000000000000000000000000000000000000000000120 <-- offset to string
-        0000000000000000000000000000000000000000000000000000000000000001
-        0000000000000000000000000000000000000000000000000000000000000020
-        0000000000000000000000009fe46736679d2d9a65f0992f2272de9f3c7fa6e0 <-- erc20 addr
-        000000000000000000000000000000000000000000000000120a871cc0020000 <-- amount
-        0000000000000000000000000000000000000000000000000000000000000060
-        0000000000000000000000000000000000000000000000000000000000000001
-        0000000000000000000000000000000000000000000000000000000000000000
-        0000000000000000000000000000000000000000000000000000000000000028 <-- length
-        68747470733a2f2f747769747465722e636f6d2f7a68616e6777656977752032 <-- string
-        3035353231363736000000000000000000000000000000000000000000000000
-         */
-
-        String function = "0x230b1a8f" + // (for createTip(token[], id) : 0x9218e0ee
+        String function = "0x9218e0ee" + // (for createTip(token[], id) : 0x9218e0ee
                 "0000000000000000000000000000000000000000000000000000000000000040" +
                 "0000000000000000000000000000000000000000000000000000000000000120" +
                 "0000000000000000000000000000000000000000000000000000000000000001" +
@@ -335,8 +337,6 @@ public class APIController
                 "0000000000000000000000000000000000000000000000000000000000000000" +
                 Numeric.toHexStringNoPrefixZeroPadded(BigInteger.valueOf(identifier.length()), 64) +
                 idHex;
-
-
 
         return function;
     }
@@ -395,7 +395,7 @@ public class APIController
 
     private static Function getTip(BigInteger tokenId) {
         return new Function(
-                "getCommitment",
+                "getTip",
                 Arrays.asList(new Uint256(tokenId)),
                 Arrays.<TypeReference<?>>asList(new TypeReference<DynamicArray<PaymentToken>>() {},
                         new TypeReference<Address>() {}, new TypeReference<Uint256>() {},
@@ -674,7 +674,7 @@ public class APIController
         //create transaction
         byte[] txBytes;
         String encodedFunction;
-        String twitterId = "https://twitter.com/" + userName + " " + data.id;
+        String twitterId = data.getIdentifier();
 
         if (erc20Val.equals(BigDecimal.ZERO))
         {
@@ -690,7 +690,6 @@ public class APIController
 
         txBytes = Numeric.hexStringToByteArray(Numeric.cleanHexPrefix(encodedFunction));
 
-        //otherwise show twitter
         model.addAttribute("profilepic", data.profile_image_url);
         model.addAttribute("username", data.username);
         model.addAttribute("id", data.id);
@@ -705,13 +704,21 @@ public class APIController
 
         if (erc20Val.compareTo(BigDecimal.ZERO) > 0)
         {
-            model.addAttribute("erc20addr", erc20Addr);
+            model.addAttribute("erc20addr", "'" + erc20Addr + "'");
             model.addAttribute("erc20val", erc20Val.toBigInteger().toString());
+
+            //need to call approve first
+            //get approve ERC20 tx
+            Function approve = approve(CONTRACT, erc20Val.toBigInteger());
+            encodedFunction = FunctionEncoder.encode(approve);
+            txBytes = Numeric.hexStringToByteArray(Numeric.cleanHexPrefix(encodedFunction));
+            model.addAttribute("approve_tx", "'" + Numeric.toHexString(txBytes) + "'");
         }
         else
         {
             model.addAttribute("erc20addr", "");
             model.addAttribute("erc20val", "0");
+            model.addAttribute("approve_tx", "");
         }
 
         return "processTransaction";
@@ -723,6 +730,11 @@ public class APIController
         public String name;
         public String id;
         public String username;
+
+        public String getIdentifier()
+        {
+            return TWITTER_URL + username + " " + id;
+        }
     }
 
     private class Encapsulate
@@ -737,7 +749,6 @@ public class APIController
 
         try
         {
-            //okhttp3.RequestBody requestBody = okhttp3.RequestBody.create(payload, HttpService.JSON_MEDIA_TYPE);
             Request request = new Request.Builder()
                     .url(urlCall)
                     .method("GET", null)
@@ -750,11 +761,15 @@ public class APIController
             String result = response.body() != null ? response.body().string() : "";
 
             Encapsulate data = new Gson().fromJson(result, Encapsulate.class);
-            return data.data;
+            if (data != null && data.data != null)
+            {
+                twitterIdMap.put(data.data.id, data.data);
+                return data.data;
+            }
         }
         catch (Exception e)
         {
-
+            //
         }
 
         return null;
@@ -764,31 +779,6 @@ public class APIController
     @GetMapping(value = "/notenoughfunds/")
     public String notEnoughFunds(Model model) {
         return "fund_error";
-    }
-
-    //3a. Return from Signing the transaction - now push it
-    @GetMapping(value = "/generateTip/{addr}/{tokenAddr}/{tokenId}")
-    public String generateTip(@PathVariable("tokenAddr") String tokenAddr,
-                              @PathVariable("tokenId") String tokenId,
-                              @PathVariable("addr") String userAddr,
-                              Model model) {
-
-        //form push transaction
-        Function approveNFTMove = approveNFT(CONTRACT, new BigInteger(tokenId));
-        String encodedFunction = FunctionEncoder.encode(approveNFTMove);
-        byte[] functionCode = Numeric.hexStringToByteArray(Numeric.cleanHexPrefix(encodedFunction));
-
-        //Now ask user to push the transaction
-        model.addAttribute("tx_bytes", "'" + Numeric.toHexString(functionCode) + "'");
-        model.addAttribute("contract_address", "'" + tokenAddr + "'");
-        model.addAttribute("gas_price", currentGasPrice.multiply(GWEI_FACTOR).toBigInteger().toString());
-        model.addAttribute("gas_limit", GAS_LIMIT_CONTRACT.toString());
-        model.addAttribute("expected_id", CHAIN_ID);
-        model.addAttribute("expected_text", "'" + CHAIN_NAME + "'");
-        model.addAttribute("token_address", "'" + tokenAddr + "'");
-        model.addAttribute("token_id", "'" + tokenId + "'");
-
-        return "pushApprove";
     }
 
     //3. Wait for approve transaction to be written to the blockchain,
@@ -802,9 +792,383 @@ public class APIController
         waitForTransactionReceipt(resultHash);
 
         model.addAttribute("result_hash", "'" + resultHash + "'");
+        model.addAttribute("collection_url", "'" + deploymentAddress + "claim" + "'");
 
         return "tipCreated";
     }
+
+    //
+    // Claim a tip
+    //
+
+    //1. Find User's tips /claim/{username} (generate QR code and link to give/show to user}
+    //2. See if they have a cached attestation, if they do, move to 4, if not, generate attestation
+    //3. Generate CosignedIdentifierAttestation
+    //4. Push transaction.
+    //5. TODO: Batch collect tips
+
+    public Twitter getTwitter() {
+        Twitter twitter = null;
+
+        //set the consumer key and secret for our app
+        String consumerKey = "OfPvp7JebQILnzYlfFRwRhTYg";
+        String consumerSecret = "lDla1s3JIluPGUgEPVAVsgZkYrldiED9olpIrrm33QNVTWAGiv";
+
+        //build the configuration
+        ConfigurationBuilder builder = new ConfigurationBuilder();
+        builder.setOAuthConsumerKey(consumerKey);
+        builder.setOAuthConsumerSecret(consumerSecret);
+
+        Configuration configuration = builder.build();
+
+        //instantiate the Twitter object with the configuration
+        TwitterFactory factory = new TwitterFactory(configuration);
+        twitter = factory.getInstance();
+
+        return twitter;
+    }
+
+    @GetMapping(value = "/claim")
+    public String genAttestation(
+                        Model model) {
+        //login with twitter
+        return "twitter_login";
+    }
+
+    @RequestMapping("/getToken")
+    public RedirectView getToken(HttpServletRequest request, Model model) {
+        //this will be the URL that we take the user to
+        String twitterUrl = "";
+
+        try {
+            //get the Twitter object
+            Twitter twitter = getTwitter();
+
+            //get the callback url so they get back here
+            String callbackUrl = deploymentAddress + "twitterCallback";
+
+            //go get the request token from Twitter
+            RequestToken requestToken = twitter.getOAuthRequestToken(callbackUrl);
+
+            //put the token in the session because we'll need it later
+            request.getSession().setAttribute("requestToken", requestToken);
+
+            //let's put Twitter in the session as well
+            request.getSession().setAttribute("twitter", twitter);
+
+            //now get the authorization URL from the token
+            twitterUrl = requestToken.getAuthorizationURL();
+
+            System.out.println("Authorization url is " + twitterUrl);
+        } catch (Exception e) {
+            e.printStackTrace();//("Problem logging in with Twitter!", e);
+        }
+
+        //redirect to the Twitter URL
+        RedirectView redirectView = new RedirectView();
+        redirectView.setUrl(twitterUrl);
+        return redirectView;
+    }
+
+    @RequestMapping("/twitterCallback")
+    public @ResponseBody String twitterCallback(@RequestParam(value="oauth_verifier", required=false) String oauthVerifier,
+                                  @RequestParam(value="denied", required=false) String denied,
+                                  HttpServletRequest request, HttpServletResponse response, Model model) {
+
+        if (denied != null) {
+            //if we get here, the user didn't authorize the app
+            return "redirect:twitterLogin";
+        }
+
+        //get the objects from the session
+        Enumeration<String> attrs = request.getAttributeNames();
+        Enumeration<String> attrs2 = request.getSession().getAttributeNames();
+        Twitter twitter = (Twitter) request.getSession().getAttribute("twitter");
+        RequestToken requestToken = (RequestToken) request.getSession().getAttribute("requestToken");
+
+        try {
+            AccessToken token = twitter.getOAuthAccessToken(requestToken, oauthVerifier);
+
+            //take the request token out of the session
+            request.getSession().removeAttribute("requestToken");
+
+            //store the user name so we can display it on the web page
+            TwitterData data = lookupTwitterName(twitter.getScreenName());
+            if (attestationMap.containsKey(data.id)) {
+                return showTipList(data.getIdentifier(), data.id);
+            } else {
+                String initHTML = loadFile("templates/getPublicKey.html");
+
+                //store the user name so we can display it on the web page
+                String imageBlock = "<img src=\"" + data.profile_image_url + "\" alt=\"" + data.username + "\" />\n" +
+                        "<h5>" + data.username + "</h5>";
+
+                initHTML = initHTML.replace("[IMAGE_BLOCK]", imageBlock);
+                initHTML = initHTML.replace("[USERNAME]", data.username);
+                initHTML = initHTML.replace("[IDENTIFIER]", data.id);
+
+                return initHTML;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            //return "redirect:twitterLogin";
+        }
+
+        return "";
+    }
+
+    //window.location.replace('/getPublicKey/' + account + '/' + identifier + '/' + result.result + '/' + msg + '/' + username);
+    //3. generateAttestation; we need to ask user to sign a 'Personal Message' to recover the public key.
+    // Once we have the publickey, we can create a SignedAttestation, then an NFTAttestation.
+    // We then ask the user to sign the NFTAttestation, so that in step 4 we can create a SignedNFTAttestation
+    @GetMapping(value = "/generateAttestation/{address}/{id}/{signature}/{message}/{username}")
+    public String generateAttestation(@PathVariable("address") String address,
+                                      @PathVariable("id") String id,
+                                      @PathVariable("signature") String signature,
+                                      @PathVariable("message") String message,
+                                      @PathVariable("username") String username,
+                                      Model model) throws IOException {
+
+        byte[] encodedMessage = message.getBytes();
+        byte[] compatibilityEncodedMessage = Numeric.hexStringToByteArray(message); //compatibility with MetaMask.
+        byte[] sigBytes = Numeric.hexStringToByteArray(signature);
+        Sign.SignatureData sd = sigFromByteArray(sigBytes);
+
+        String addressRecovered = "";
+        try
+        {
+            BigInteger publicKey = Sign.signedPrefixedMessageToKey(encodedMessage, sd); // <-- recover sign personal message
+            addressRecovered = "0x" + Keys.getAddress(publicKey);
+            System.out.println("Recovered: " + addressRecovered);
+
+            //now create PublicKey for attestation
+            //////////////////// Using Attestation.id endpoint
+            AsymmetricKeyParameter subjectPublicKey = SignatureUtility.recoverEthPublicKeyFromPersonalSignature(encodedMessage, sigBytes);
+
+            //Check if we need MM compatibility mode
+            if (!addressRecovered.equalsIgnoreCase(address))
+            {
+                //use compatibilityEncodedMessage
+                publicKey = Sign.signedPrefixedMessageToKey(compatibilityEncodedMessage, sd); // <-- recover sign personal message
+                addressRecovered = "0x" + Keys.getAddress(publicKey);
+                System.out.println("Recovered: " + addressRecovered);
+                //////////////////// Using Attestation.id endpoint
+                subjectPublicKey = SignatureUtility.recoverEthPublicKeyFromPersonalSignature(compatibilityEncodedMessage, sigBytes);
+            }
+
+            //Generate the CosignedIdentifierAttestation
+            SignedIdentifierAttestation att = AttestationHandler.createPublicAttestation(subjectPublicKey, id, TWITTER_URL + username);
+
+            SubjectPublicKeyInfo spki = SubjectPublicKeyInfoFactory.createSubjectPublicKeyInfo(subjectPublicKey);
+
+            //ask for signing now
+            model.addAttribute("publickey", "'" + Numeric.toHexString(spki.getEncoded()) + "'");
+            model.addAttribute("signedAttestation", "'" + Numeric.toHexString(att.getDerEncoding()) + "'"); //NB: we need to pass the raw attestation because 'Sign Personal' adds the PERSONAL prefix
+            model.addAttribute("username", "'" + username + "'");
+            model.addAttribute("id", "'" + id + "'"); //0x319C80B1cA30E4C1E5dD5AC21419348e05943305
+        }
+        catch (SignatureException e)
+        {
+            e.printStackTrace();
+        }
+
+        return "askForAttestationSignature";
+    }
+
+    //window.location.replace('/generatedCoSigned/' + account + '/' + result.result + '/' + publickey + '/' + signedAttestation + '/' + userName);
+    @GetMapping(value = "/generatedCoSigned/{address}/{signature}/{publickey}/{signedAttestation}/{userName}/{id}")
+    public @ResponseBody String generatedCoSigned(@PathVariable("address") String address,
+                                     @PathVariable("signature") String signature,
+                                     @PathVariable("publickey") String publickey,
+                                     @PathVariable("signedAttestation") String signedAttestation,
+                                     @PathVariable("userName") String userName,
+                                     @PathVariable("id") String id,
+                                     Model model) throws IOException, SignatureException
+    {
+        byte[] signedAttestationBytes = Numeric.hexStringToByteArray(signedAttestation);
+        byte[] signatureBytes = Numeric.hexStringToByteArray(signature);
+        //////////////////// Using Attestation.id endpoint (although you should already have this from step 3, it's the same object).
+        AsymmetricKeyParameter subjectPublicKey = SignatureUtility.restoreKeyFromSPKI(Numeric.hexStringToByteArray(publickey));
+        //////////////////// Using Attestation.id endpoint
+        SignedIdentifierAttestation signedIdentifier = AttestationHandler.restoreSignedAttestation(signedAttestationBytes);
+
+        CoSignedIdentifierAttestation coSigned = new CoSignedIdentifierAttestation(signedIdentifier, subjectPublicKey, signatureBytes);
+
+        System.out.println("DER: " + Numeric.toHexString(coSigned.getDerEncoding()));
+
+        //cache new attestation
+        attestationMap.put(id, coSigned);
+
+        String identifier = signedIdentifier.getUnsignedAttestation().getSubject();
+
+        return showTipList(identifier, id);
+    }
+
+    private String showTipList(String identifier, String id)
+    {
+        String initHTML = loadFile("templates/selectTip.html");
+        final BigDecimal weiFactor = BigDecimal.TEN.pow(18);
+
+        //now build a list of tips
+        int index = identifier.indexOf(TWITTER_URL);
+        identifier = identifier.substring(index);
+
+        Map<BigInteger, Tip> tips = getTipListForUser(identifier);
+
+        tipUserMap.put(id, tips);
+
+        StringBuilder tokenList = new StringBuilder();
+
+        for (BigInteger tipId : tips.keySet()) {
+            Tip tip = tips.get(tipId);
+            tokenList.append("<h4>Tip ID #").append(tipId.toString()).append("</h4>");
+            tokenList.append("<br/>");
+            BigDecimal offer = (new BigDecimal(tip.weiValue)).divide(weiFactor);
+            if (offer.compareTo(BigDecimal.ZERO) > 0) {
+                tokenList.append("Tip Eth Value: ").append("<b>").append(offer.toString()).append(" ETH</b><br/>");
+            }
+            if (tip.paymentTokens != null && tip.paymentTokens.length > 0)
+            {
+                BigDecimal tokenOffer = (new BigDecimal(tip.paymentTokens[0].value.getValue())).divide(weiFactor); //TODO: Might not always be 18
+                if (tokenOffer.compareTo(BigDecimal.ZERO) > 0)
+                {
+                    tokenList.append("Tip ERC20 Token: ").append("<b>").append(tip.paymentTokens[0].address).append("</b><br/>Amount:<b>").append(tokenOffer.toString()).append("</b><br/>");
+                }
+            }
+        }
+
+        initHTML = initHTML.replace("[TIP_LIST]", tokenList.toString());
+        initHTML = initHTML.replace("[USER_ID]", id);
+
+        return initHTML;
+    }
+
+    private Map<BigInteger, Tip> getTipListForUser(String identifier)
+    {
+        Map<BigInteger, Tip> tips = new HashMap<>();
+        final Web3j web3j = getWeb3j();
+        final Event event = getTipCreateEvent(); //search for 'CreateTip' events
+
+        try {
+            DefaultBlockParameter startBlock = DefaultBlockParameterName.EARLIEST;
+            EthFilter filter = getTipEventFilterByName(event, startBlock, identifier);
+            EthLog logs = web3j.ethGetLogs(filter).send();
+            //check logs to find tokenId
+            if (logs != null && logs.getLogs().size() > 0)
+            {
+                for (EthLog.LogResult<?> ethLog : logs.getLogs())
+                {
+                    final EventValues eventValues = staticExtractEventParameters(event, (Log) ethLog.get()); //extract offerer, identifier, commitmentId
+                    String tipIdStr = eventValues.getIndexedValues().get(2).getValue().toString(); //commitment ID (token ID of offer)
+                    BigInteger tipId = new BigInteger(tipIdStr);
+                    Tip thisTip = fetchTipByID(tipId);
+
+                    if (!thisTip.completed)
+                    {
+                        tips.put(tipId, thisTip);
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return tips;
+    }
+
+
+    //1. Find user's tips
+    //window.location.replace('/collectTip/' + account + '/' + tipId + '/' + userName);
+    @GetMapping(value = "/collectTip/{account}/{tipId}/{id}")
+    public String claim(@PathVariable("account") String account,
+                                      @PathVariable("tipId") String tipId,
+                                      @PathVariable("id") String id,
+                             Model model) {
+
+        //pull tip and attestation
+        CoSignedIdentifierAttestation att = attestationMap.get(id);
+        Map<BigInteger, Tip> tips = tipUserMap.get(id);
+        BigInteger tipIdVal;
+        final BigDecimal weiFactor = BigDecimal.TEN.pow(18);
+
+        try
+        {
+            tipIdVal = new BigInteger(tipId);
+        }
+        catch (Exception e)
+        {
+            tipIdVal = BigInteger.ZERO;
+        }
+
+        Tip thisTip = tips != null ? tips.get(tipIdVal) : null;
+
+        if (att == null || tips == null || thisTip == null || tips.size() == 0 || tipIdVal.equals(BigInteger.ZERO))
+        {
+            return "error"; // TODO: show error
+        }
+
+        //form claim transaction for user to call
+        Function claim = collectTip(tipIdVal, att);
+        tips.remove(tipIdVal);
+
+        String encodedFunction = FunctionEncoder.encode(claim);
+        byte[] functionCode = Numeric.hexStringToByteArray(Numeric.cleanHexPrefix(encodedFunction));
+        TwitterData data = twitterIdMap.get(id);
+
+        BigDecimal eth_value = (new BigDecimal(thisTip.weiValue)).divide(weiFactor);
+
+        //Now ask user to push the transaction
+        model.addAttribute("profilepic", data.profile_image_url);
+        model.addAttribute("username", data.username);
+        model.addAttribute("tx_bytes", "'" + Numeric.toHexString(functionCode) + "'");
+        model.addAttribute("contract_address", "'" + CONTRACT + "'");
+        model.addAttribute("gas_price", currentGasPrice.multiply(GWEI_FACTOR).toBigInteger().toString());
+        model.addAttribute("gas_limit", GAS_LIMIT_CONTRACT.toString());
+        model.addAttribute("expected_id", CHAIN_ID);
+        model.addAttribute("expected_text", "'" + CHAIN_NAME + "'");
+        model.addAttribute("eth_display", eth_value.toString());
+
+        BigDecimal erc20Val = BigDecimal.ZERO;
+        String erc20Addr = "";
+        try {
+            //check the eth amount:
+
+            BigInteger erc20RawVal = thisTip.paymentTokens.length > 0 ? thisTip.paymentTokens[0].value.getValue() : BigInteger.ZERO;
+
+            if (erc20RawVal.compareTo(BigInteger.ZERO) > 0)
+            {
+                erc20Val = new BigDecimal(erc20RawVal).divide(WEI_FACTOR, RoundingMode.HALF_DOWN); //TODO: Grab decimal value of erc20 and validate
+                erc20Addr = thisTip.paymentTokens[0].address.toString();
+            }
+        }
+        catch (Exception e)
+        {
+            e.printStackTrace();
+        }
+
+        model.addAttribute("erc20addr", "'" + erc20Addr + "'");
+        model.addAttribute("erc20val", "'" + erc20Val.toString() + "'");
+
+        return "callClaim";
+    }
+
+
+    //3. Wait for approve transaction to be written to the blockchain,
+    //   Then ask the user for the identity they wish to autograph the transaction
+    //   and specify how much they offer to the identity for their autograph
+    @GetMapping(value = "/waitForClaim/{resulthash}")
+    public String waitForClaim(@PathVariable("resulthash") String resultHash,
+                             Model model) {
+
+        //wait for transaction to be written to block
+        waitForTransactionReceipt(resultHash);
+
+        model.addAttribute("result_hash", "'" + resultHash + "'");
+
+        return "tipClaimed";
+    }
+
 
 /*
     //4. Generate the commit function.
@@ -1260,6 +1624,16 @@ public class APIController
         return new Event("CreateCommitmentRequest", paramList);
     }
 
+    private Event getTipCreateEvent()
+    {
+        List<TypeReference<?>> paramList = new ArrayList<>();
+        paramList.add(new TypeReference<Address>(true) { });
+        paramList.add(new TypeReference<Utf8String>(true) { });
+        paramList.add(new TypeReference<Uint256>(true) { });
+
+        return new Event("CreateTip", paramList);
+    }
+
     private Event getTransmogrifyEvent()
     {
         List<TypeReference<?>> paramList = new ArrayList<>();
@@ -1520,13 +1894,13 @@ public class APIController
         return jsonResult;
     }
 
-    /*private EthFilter getCommitEventFilterByName(Event event, DefaultBlockParameter startBlock, String forIdentifier)
+    private EthFilter getTipEventFilterByName(Event event, DefaultBlockParameter startBlock, String forIdentifier)
     {
         final org.web3j.protocol.core.methods.request.EthFilter filter =
                 new org.web3j.protocol.core.methods.request.EthFilter(
                         startBlock,
                         DefaultBlockParameterName.LATEST,
-                        RETORT_CONTRACT) // retort contract address
+                        CONTRACT) // retort contract address
                         .addSingleTopic(EventEncoder.encode(event));// commit event format
 
         //form keccak256 of identifier for event search (logs encode strings as keccak256 hash)
@@ -1539,7 +1913,26 @@ public class APIController
         return filter;
     }
 
-    private EthFilter getTransmogrifyEventFilter(Event event, BigInteger commitId)
+    private Tip fetchTipByID(BigInteger commitmentId)
+    {
+        final Web3j web3j = getWeb3j();
+        //fetch the commitment data from the retort contract
+        Function tipFunc = getTip(commitmentId);
+        String result = "";
+        try
+        {
+            result = callSmartContractFunction(web3j, tipFunc, CONTRACT, ZERO_ADDRESS);
+        }
+        catch (Exception e)
+        {
+            e.printStackTrace();
+        }
+
+        //form a commitment
+        return new Tip(tipFunc, result);
+    }
+
+    /*private EthFilter getTransmogrifyEventFilter(Event event, BigInteger commitId)
     {
         final org.web3j.protocol.core.methods.request.EthFilter filter =
                 new org.web3j.protocol.core.methods.request.EthFilter(

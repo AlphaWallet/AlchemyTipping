@@ -11,12 +11,12 @@ import tapi.api.crypto.core.SignatureUtility;
 import tapi.api.crypto.core.Validateable;
 import tapi.api.crypto.core.Verifiable;
 
-public class WrappedSignedIdentifierAttestation implements ASNEncodable, Verifiable, Validateable {
+public class CoSignedIdentifierAttestation implements ASNEncodable, Verifiable, Validateable {
     private final SignedIdentifierAttestation att;
     private final byte[] signature;
     private final AsymmetricKeyParameter attestationVerificationKey;
 
-    public WrappedSignedIdentifierAttestation(SignedIdentifierAttestation att, AsymmetricCipherKeyPair subjectSigningKey) {
+    public CoSignedIdentifierAttestation(SignedIdentifierAttestation att, AsymmetricCipherKeyPair subjectSigningKey) {
         this.att = att;
         this.signature = SignatureUtility.signPersonalMsgWithEthereum(att.getDerEncoding(), subjectSigningKey.getPrivate());
         this.attestationVerificationKey = subjectSigningKey.getPublic();
@@ -28,7 +28,7 @@ public class WrappedSignedIdentifierAttestation implements ASNEncodable, Verifia
     /**
      * Constructor used for when we supply the signature separately
      */
-    public WrappedSignedIdentifierAttestation(SignedIdentifierAttestation att, AsymmetricKeyParameter subjectPublicKey, byte[] signature) {
+    public CoSignedIdentifierAttestation(SignedIdentifierAttestation att, AsymmetricKeyParameter subjectPublicKey, byte[] signature) {
         this.att = att;
         this.signature = signature;
         this.attestationVerificationKey = subjectPublicKey;

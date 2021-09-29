@@ -31,16 +31,10 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 
-<body th:attr="onload='showQR(' + ${result_hash} + ',' + ${collection_url} + ')'">
+<body th:attr="onload='showQR(' + ${result_hash} + ')'">
 <div class="jumbotron">
-    <h1>Tip created!</h1>
+    <h1>Tip claimed!</h1>
 </div>
-<br/>
-<br/>
-<h5>Share this URL for the claimer to get their tip</h5>
-<div id="url"></div>
-<br/>
-<p class="l1" id="qrcode"></p>
 <br/>
 <h4>Don't have an Ethereum wallet? Use AlphaWallet: </h4>
 <p id="download_app">
@@ -54,19 +48,25 @@
     </a>
 </p>
 <script>
-        function showQR(txHash, collectionUrl) {
+        function showQR(txHash) {
+
+            var etherscanUrl = "https://rinkeby.etherscan.io/tx/" + txHash;
 
             var qrc = new QRCode(document.getElementById("qrcode"), {
-                    text: collectionUrl,
+                    text: etherscanUrl,
                     width: 200,
                     height: 200,
             });
 
-            document.getElementById("url").innerHTML = collectionUrl;
+            document.getElementById("url").innerHTML = etherscanUrl;
         }
         </script>
 
-
+<br/>
+<div id="url"></div>
+<br/>
+<p class="l1" id="qrcode"></p>
+<br/>
 
 </body>
 

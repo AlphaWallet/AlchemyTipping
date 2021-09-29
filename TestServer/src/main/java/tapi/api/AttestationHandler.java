@@ -32,9 +32,14 @@ public class AttestationHandler {
         }
     }
 
-    public static SignedIdentifierAttestation createPublicAttestation(AsymmetricKeyParameter subjectPublicKey, String identifier)
+    public static SignedIdentifierAttestation restoreSignedAttestation(byte[] signedAttestationBytes) throws IOException
     {
-        IdentifierAttestation att = new IdentifierAttestation(TWITTER_FAKE_UID, TWITTER_URL + identifier, subjectPublicKey); //  makePublicIdAttestation(subjectPublicKey, "TW", identifier);
+        return new SignedIdentifierAttestation(signedAttestationBytes, attestorKeys.getPublic());
+    }
+
+    public static SignedIdentifierAttestation createPublicAttestation(AsymmetricKeyParameter subjectPublicKey, String id, String identifier)
+    {
+        IdentifierAttestation att = new IdentifierAttestation(id, identifier, subjectPublicKey); //  makePublicIdAttestation(subjectPublicKey, "TW", identifier);
         SignedIdentifierAttestation signedAttestation = new SignedIdentifierAttestation(att, attestorKeys);
         return signedAttestation;
     }

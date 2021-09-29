@@ -26,10 +26,11 @@
         }
     </style>
 </head>
-<!--<body th:attr="onload='components(' + ${erc20val} + ',' + ${tx_bytes} + ',' + ${contract_address} + ',' + ${gas_price} + ',' + ${gas_limit} + ',' + ${expected_id} + ',' + ${expected_text} + ');'">-->
-<body th:attr="onload='components(' + ${erc20val} + ',' + ${tx_bytes} + ',' + ${contract_address} + ',' + ${eth} + ',' + ${gas_price} + ',' + ${gas_limit} + ',' + ${expected_id} + ',' + ${expected_text} + ',' + ${approve_tx} + ',' + ${erc20addr} + ');'">
+
+
+<body th:attr="onload='components(' + ${erc20val} + ',' + ${tx_bytes} + ',' + ${contract_address} + ',' + ${gas_price} + ',' + ${gas_limit} + ',' + ${expected_id} + ',' + ${expected_text} + ');'">
 <div class="jumbotron">
-    <h1>Alchemy Twitter Tipping</h1>
+    <h1>Alchemy Twitter Tipping: Claim Tip</h1>
     <div id="bodyWrap">
         <h4>Twitter User: </h4>
         <div>
@@ -51,61 +52,41 @@
     </div>
 </div>
 <br/>
-<script>
 
-        function components(erc20val, txData, contractAddr, eth, txGasPrice, txGasLimit, expectedId, expectedChainText, approveTx, erc20addr)
+<script>
+        function components(erc20val, txData, contractAddr, txGasPrice, txGasLimit, expectedId, expectedChainText)
         {
             var erc20layout = document.getElementById('erc20layout');
 
+            if (erc20val == 0)
+            {
+                erc20layout.style.display = 'none' ;
+            }
+
             var account = web3.eth.coinbase;
             if (!account) return connect()
-
             var networkId = web3.version.network;
 
             if (networkId != expectedId)
             {
                alert("Please set your dapp browser to use the " + expectedChainText + " Network.");
             }
-            else if (erc20val == 0)
-            {
-                erc20layout.style.display = 'none' ;
-                completeTipTx(txData, contractAddr, eth, txGasPrice, txGasLimit);
-            }
             else
             {
-                web3.eth.sendTransaction({
-                    from: account,
-                    to: erc20addr,
-                    value: 0,
-                    gasLimit: txGasLimit,
-                    gasPrice: txGasPrice,
-                    data: approveTx
-                },function(error, result){
-                if(!error)
-                    completeTipTx(txData, contractAddr, eth, txGasPrice, txGasLimit);
-                else
-                    window.location.replace('/errorFinal/' + error);
-                });
-            }
-        }
-
-        function completeTipTx(txData, contractAddr, eth, txGasPrice, txGasLimit)
-        {
-            var account = web3.eth.coinbase;
-
-            web3.eth.sendTransaction({
+               web3.eth.sendTransaction({
                     from: account,
                     to: contractAddr,
-                    value: eth,
+                    value: 0,
                     gasLimit: txGasLimit,
                     gasPrice: txGasPrice,
                     data: txData
                 },function(error, result){
                 if(!error)
-                    window.location.replace('/waitForTip/' + result);
+                    window.location.replace('/waitForClaim/' + result);
                 else
                     window.location.replace('/errorFinal/' + error);
                 });
+            }
         }
 
     </script>
