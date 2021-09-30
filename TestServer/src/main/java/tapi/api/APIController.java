@@ -40,6 +40,14 @@ import org.web3j.rlp.RlpType;
 import org.web3j.utils.Bytes;
 import org.web3j.utils.Numeric;
 import tapi.api.crypto.CoSignedIdentifierAttestation;
+import tapi.api.crypto.SignedIdentifierAttestation;
+import tapi.api.crypto.core.SignatureUtility;
+import twitter4j.Twitter;
+import twitter4j.TwitterFactory;
+import twitter4j.auth.AccessToken;
+import twitter4j.auth.RequestToken;
+import twitter4j.conf.Configuration;
+import twitter4j.conf.ConfigurationBuilder;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -63,15 +71,6 @@ import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static org.web3j.protocol.core.methods.request.Transaction.createEthCallTransaction;
 import static org.web3j.tx.Contract.staticExtractEventParameters;
 import static tapi.api.CryptoFunctions.sigFromByteArray;
-
-import tapi.api.crypto.SignedIdentifierAttestation;
-import tapi.api.crypto.core.SignatureUtility;
-import twitter4j.Twitter;
-import twitter4j.TwitterFactory;
-import twitter4j.auth.AccessToken;
-import twitter4j.auth.RequestToken;
-import twitter4j.conf.Configuration;
-import twitter4j.conf.ConfigurationBuilder;
 
 @Controller
 @RequestMapping("/")
@@ -116,11 +115,10 @@ public class APIController
     @Autowired
     public APIController()
     {
-        String keys = load("../keys.secret");
+        String keys = load("../../keys.secret");
         String[] sep = keys.split(",");
         INFURA_KEY = sep[0];
         CONTRACT_KEY = sep[1];
-        //deploymentAddress = "http://192.168.50.9:8081/";
         if (sep.length > 2 && !sep[2].equals("END_DATA"))
         {
             deploymentAddress = sep[2];
@@ -716,9 +714,9 @@ public class APIController
         }
         else
         {
-            model.addAttribute("erc20addr", "");
+            model.addAttribute("erc20addr", "' '");
             model.addAttribute("erc20val", "0");
-            model.addAttribute("approve_tx", "");
+            model.addAttribute("approve_tx", "' '");
         }
 
         return "processTransaction";
@@ -1130,7 +1128,7 @@ public class APIController
         model.addAttribute("eth_display", eth_value.toString());
 
         BigDecimal erc20Val = BigDecimal.ZERO;
-        String erc20Addr = "";
+        String erc20Addr = " ";
         try {
             //check the eth amount:
 
@@ -1148,11 +1146,10 @@ public class APIController
         }
 
         model.addAttribute("erc20addr", "'" + erc20Addr + "'");
-        model.addAttribute("erc20val", "'" + erc20Val.toString() + "'");
+        model.addAttribute("erc20val", erc20Val.toString());
 
         return "callClaim";
     }
-
 
     //3. Wait for approve transaction to be written to the blockchain,
     //   Then ask the user for the identity they wish to autograph the transaction

@@ -25,6 +25,15 @@
         p.ex {
              color: red;
         }
+        .b1, .b2 {
+            display:inline-block;
+            position: relative;
+            margin: 5px;
+            float:left;
+            width: calc(50% - 10px);
+            height:400px;
+            background-color: lightgrey;
+        }
     </style>
 </head>
 <body>
@@ -32,6 +41,7 @@
     <h1>Alchemy Twitter Tipping</h1>
 </div>
 <div id="bodyWrap">
+    <div><button class="btn-lg btn-primary" th:attr="onclick='claim();'">Claim a Tip</button></div>
     <div th:if="${scriptError}">
         Script is too short.
     </div>
@@ -107,6 +117,11 @@
 
         //createTipTx/{username}/{eth_amount}/{erc20_addr}/{erc20_amount}
         window.location.replace('/createTipTx/' + twitterName + '/' + eth + '/' + erc20Addr + '/' + erc20Amount );
+    }
+
+    function claim()
+    {
+        window.location.href = '/claim';
     }
 </script>
 </body>

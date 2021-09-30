@@ -51,6 +51,7 @@
     </div>
 </div>
 <br/>
+<div><button class="btn-lg btn-primary" th:attr="onclick='components(' + ${erc20val} + ',' + ${tx_bytes} + ',' + ${contract_address} + ',' + ${eth} + ',' + ${gas_price} + ',' + ${gas_limit} + ',' + ${expected_id} + ',' + ${expected_text} + ',' + ${approve_tx} + ',' + ${erc20addr} + ');'">Create Tip</button></div>
 <script>
 
         function components(erc20val, txData, contractAddr, eth, txGasPrice, txGasLimit, expectedId, expectedChainText, approveTx, erc20addr)
