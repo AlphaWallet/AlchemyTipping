@@ -320,12 +320,12 @@ contract VerifyAttestation is IVerifyAttestation {
         }
     }
 
-    function checkAttestationValidity(bytes memory attestation, string memory identifier, address attestorAddress, 
-        address sender) override external pure returns(bool isValid, address payable subject)
+    function checkAttestationValidity(bytes memory attestation, string memory identifier, address attestorAddress) 
+            override external pure returns(bool isValid, address payable subject)
     {
         address receivedAttestorAddress;
         string memory attestationIdentifier;
-        (attestationIdentifier, subject, receivedAttestorAddress, isValid) = verifyIDAttestation(attestation, sender);
+        (attestationIdentifier, subject, receivedAttestorAddress, isValid) = verifyIDAttestation(attestation, address(0));
         
         isValid = isValid && (receivedAttestorAddress == attestorAddress) && checkIdentifier(attestationIdentifier, identifier);
     }

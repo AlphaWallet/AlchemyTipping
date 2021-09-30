@@ -160,7 +160,7 @@ contract TipOffer is TipOfferData {
         string memory identifier = _tips[tipIds[0]].identifier;
 
         IVerifyAttestation verifier = IVerifyAttestation(_verifyAttestation);
-        (passedVerification, subjectAddress) = verifier.checkAttestationValidity(coSignedAttestation, identifier,  _attestorAddress, msg.sender);
+        (passedVerification, subjectAddress) = verifier.checkAttestationValidity(coSignedAttestation, identifier,  _attestorAddress);
         require(passedVerification, "Invalid Attestation used");
 
         for (uint256 index = 0; index < tipIds.length; index++)
