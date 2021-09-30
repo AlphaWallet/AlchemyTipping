@@ -114,13 +114,13 @@ describe("TwitterTipper.deploy", function () {
             console.log("TestAddr Bal: " + testAddrBal);
 
             let tx;
-            const transactionData = await tipperContract.connect(testAddr).createTip1(twitter, {
+            const transactionData = await tipperContract.connect(testAddr).createTip([], twitter, {
                 value: ethers.utils.parseEther("0.1"),
             });
 
             console.log("OUT: " + transactionData.data );
 
-            let estimatedGasCommit = await tipperContract.connect(testAddr).estimateGas.createTip1(twitter, {
+            let estimatedGasCommit = await tipperContract.connect(testAddr).estimateGas.createTip([], twitter, {
                 value: ethers.utils.parseEther("0.1"),
             });
             console.log('estimatedGasCommit = ' + estimatedGasCommit );
@@ -230,6 +230,8 @@ describe("TwitterTipper.deploy", function () {
 
             testAddrBal = await stableCoin.connect(testAddr).balanceOf(subjectAddress);
             console.log("StableCoin Subject Bal: " + testAddrBal);
+
+            await showTips([4, 5, 6, 7]);
         }
     });
 

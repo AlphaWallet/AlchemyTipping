@@ -103,12 +103,6 @@ contract TipOffer is TipOfferData {
         return owner;
     }
 
-    function createTip1(string memory identifier) public payable
-    {
-        PaymentToken[] memory noTokens;
-        return createTip(noTokens, identifier);
-    }
-    
     /****
      * 
      * @param paymentTokens: ERC20 tokens to be committed
