@@ -24,6 +24,8 @@ The keys.secret format is like this:
 eg:
 ```876876aa878a787a878a787878b787b,87236487236487236478236478236487236487236487236487236487623487263487,http:///stormbird.duckdns.org/,END_DATA```
 
+The current contract in Rinkeby is here: ```0x10C663299248548BE18Ab4aEB1bA44C399bDAd84```. It is not yet proxied so it will change once I implement proxy.
+
 
 ## How it works
 
