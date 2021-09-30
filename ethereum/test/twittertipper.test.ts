@@ -137,7 +137,7 @@ describe("TwitterTipper.deploy", function () {
             await showTipFromId(2);
 
             //now claim this tip
-            const transactionData2 = await tipperContract.connect(addr1).collectTip(1, universalIdAttestation);
+            const transactionData2 = await tipperContract.connect(addr1).collectTip([1], universalIdAttestation);
 
             await showTipFromId(1);
             testAddrBal = await ethers.provider.getBalance(subjectAddress);
@@ -145,7 +145,7 @@ describe("TwitterTipper.deploy", function () {
 
             //now create a tip with ETH and ERC20
             // move some Stablecoin to test account
-            await stableCoin.connect(owner).transfer(testAddr.address, ethers.utils.parseEther("10.0"));
+            await stableCoin.connect(owner).transfer(testAddr.address, ethers.utils.parseEther("50.0"));
             let testBal :BigNumber = await stableCoin.connect(testAddr).balanceOf(testAddr.address);
             console.log("TestBal Stablecoin: " + testBal);
 
@@ -153,7 +153,7 @@ describe("TwitterTipper.deploy", function () {
             await stableCoin.connect(testAddr).approve(tipperContract.address, ethers.utils.parseEther("1.3"));
 
             //make commitment
-            const erc20TipTx = await tipperContract.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("1.3"), "0x00"]], twitter, {
+            let erc20TipTx = await tipperContract.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("1.3"), "0x00"]], twitter, {
                 value: ethers.utils.parseEther("0.2"),
             });
 
@@ -172,10 +172,19 @@ describe("TwitterTipper.deploy", function () {
             console.log("StableCoin Contract Bal: " + testAddrBal);
 
             //attempt to claim tip by imposter
-            await expect(tipperContract.connect(addr1).collectTip(2, fakeUniversalIdAttestation)).to.be.revertedWith('Invalid Attestation used');
+            await expect(tipperContract.connect(addr1).collectTip([2], fakeUniversalIdAttestation)).to.be.revertedWith('Invalid Attestation used');
+
+            //create another commitment
+            //call approve
+            await stableCoin.connect(testAddr).approve(tipperContract.address, ethers.utils.parseEther("4.1"));
+            erc20TipTx = await tipperContract.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("4.1"), "0x00"]], twitter, {
+                value: ethers.utils.parseEther("1.1"),
+            });
+
+            await showTips([1, 2, 3]);
 
             //claim tip
-            const transactionData3 = await tipperContract.connect(addr1).collectTip(2, universalIdAttestation);
+            const transactionData3 = await tipperContract.connect(addr1).collectTip([2,3], universalIdAttestation); //show check
 
             //check new balance
             testAddrBal = await ethers.provider.getBalance(subjectAddress);
@@ -184,6 +193,43 @@ describe("TwitterTipper.deploy", function () {
             testAddrBal = await stableCoin.connect(testAddr).balanceOf(subjectAddress);
             console.log("StableCoin Subject Bal: " + testAddrBal);
 
+            //Now try to claim tips which have one that's for someone else
+            //setup tips 4,5 and 6 (6 is for a different user)
+            await stableCoin.connect(testAddr).approve(tipperContract.address, ethers.utils.parseEther("4.1"));
+            erc20TipTx = await tipperContract.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("4.1"), "0x00"]], twitter, {
+                value: ethers.utils.parseEther("1.1"),
+            });
+
+            await stableCoin.connect(testAddr).approve(tipperContract.address, ethers.utils.parseEther("6.2"));
+            erc20TipTx = await tipperContract.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("6.2"), "0x00"]], twitter, {
+                value: ethers.utils.parseEther("3.0"),
+            });
+
+            await stableCoin.connect(testAddr).approve(tipperContract.address, ethers.utils.parseEther("3.2"));
+            erc20TipTx = await tipperContract.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("3.2"), "0x00"]], "hekatonchires 777", {
+                value: ethers.utils.parseEther("3.0"),
+            });
+
+            //now try to claim all under the main attestation
+            await expect(tipperContract.connect(addr1).collectTip([4,5,6], universalIdAttestation)).to.be.revertedWith('Not your tip');
+
+            //add another tip
+            await stableCoin.connect(testAddr).approve(tipperContract.address, ethers.utils.parseEther("2.2"));
+            erc20TipTx = await tipperContract.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("2.2"), "0x00"]], twitter, {
+                value: ethers.utils.parseEther("0.01"),
+            });
+
+            await showTips([4, 5, 6, 7]);
+
+            //finally claim all the tips we are allowed to
+            const transactionData4 = await tipperContract.connect(addr1).collectTip([4,5,7], universalIdAttestation);
+
+            //check new balance
+            testAddrBal = await ethers.provider.getBalance(subjectAddress);
+            console.log("Subject Bal: " + testAddrBal);
+
+            testAddrBal = await stableCoin.connect(testAddr).balanceOf(subjectAddress);
+            console.log("StableCoin Subject Bal: " + testAddrBal);
         }
     });
 
@@ -203,5 +249,28 @@ describe("TwitterTipper.deploy", function () {
             let amount :BigNumber = tip.paymentTokens[i].amount;
             console.log("ERC20 Token: " + erc20Address + " (" + amount + ")");
         } 
+    }
+
+    async function showTips(tipId: number[])
+    {
+        console.log("-----");
+        console.log("Batch Query Tips: " + tipId);
+        let tips = await tipperContract.getTips(tipId);
+
+        for (let i = 0; i < tips.length; i++) {
+            //(PaymentToken[] memory paymentTokens, address offerer, uint256 weiValue, string memory identifier, bool completed)
+            let thisTip = tips[i];
+            console.log("tipId: " + tipId[i]);
+            console.log("Amount: " + thisTip.weiValue);
+            console.log("Completed: " + thisTip.completed);
+
+            for (let i = 0; i < thisTip.paymentTokens.length; i++) {
+                let erc20Address = thisTip.paymentTokens[i].erc20;
+                let amount :BigNumber = thisTip.paymentTokens[i].amount;
+                console.log("ERC20 Token: " + erc20Address + " (" + amount + ")");
+            } 
+        }
+
+        console.log("-----");
     }
 });

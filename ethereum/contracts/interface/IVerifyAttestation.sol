@@ -18,6 +18,6 @@ interface IVerifyAttestation {
     function getNFTAttestationTimestamp(bytes memory attestation) external pure returns(string memory startTime, string memory endTime);
     function checkAttestationValidity(bytes memory nftAttestation, NFToken[] memory commitmentNFTs,
         string memory commitmentIdentifier, address attestorAddress, address sender) external pure returns(bool passedVerification, address payable subjectAddress);
-    function checkAttestationValidity(bytes memory attestation, string memory identifier, address attestorAddress, 
-        address sender) external pure returns(bool passedVerification, address payable subjectAddress);
+    function checkAttestationValidity(bytes memory attestation, string memory identifier, address attestorAddress) 
+        external pure returns(bool passedVerification, address payable subjectAddress);
 }

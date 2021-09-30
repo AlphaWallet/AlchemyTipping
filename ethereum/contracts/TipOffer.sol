@@ -27,6 +27,12 @@ contract TipOfferData {
         address offerer;            // only need this if offer is recindable
     }
 
+    struct TipQuery {
+        PaymentToken[] paymentTokens;
+        uint256 weiValue;
+        bool completed; // authorisation; null if underlying contract doesn't support it
+    }
+
     address _verifyAttestation; //this points to the contract that verifies attestations: VerifyAttestation.sol
 
     // Dynamic data
@@ -90,7 +96,7 @@ contract TipOffer is TipOfferData {
     }
 
     event CreateTip(address indexed offerer, string indexed identifier, uint256 indexed tipId);
-    event CollectTip(address indexed offerer, string indexed identifier, uint256 indexed tipId, address tipee);
+    event CollectTips(string indexed identifier, address tipee);
     event CancelTip(address indexed offerer, string indexed identifier, uint256 indexed tipId);
 
     function getAdmin() external view returns(address) {
@@ -130,6 +136,12 @@ contract TipOffer is TipOfferData {
         _tipId++;
     }
 
+    function checkIdentifier(string memory identifierId, string memory checkId) internal pure returns(bool)
+    {
+        return (keccak256(abi.encodePacked((identifierId))) == 
+                    keccak256(abi.encodePacked((checkId))));
+    }
+
     /****
      * collectTip() checks the crypto and delivers the tip
      * 
@@ -139,26 +151,28 @@ contract TipOffer is TipOfferData {
      *                           wishes the subsequent tips to be paid to the same address there's no need to create a new attestation, which streamlines collecting tips.
      * tipAttestation: the tip attestation 
      */
-    function collectTip(uint256 tipId, bytes memory nftAttestation) external 
+    function collectTip(uint256[] memory tipIds, bytes memory coSignedAttestation) external 
     {
         //recover the commitment ID
         address payable subjectAddress;
         bool passedVerification;
+        require(tipIds.length > 0, "No TipIds");
+        string memory identifier = _tips[tipIds[0]].identifier;
 
-        require(_tips[tipId].adrPayee == address(0), "Commitment already taken");
-        //now attempt to verify the attestation and sender
         IVerifyAttestation verifier = IVerifyAttestation(_verifyAttestation);
-
-        // subjectAddress should be King Midas's Ethereum address (identified by the identifier string)
-        (passedVerification, subjectAddress) = verifier.checkAttestationValidity(nftAttestation, _tips[tipId].identifier,  _attestorAddress, msg.sender);
-
+        (passedVerification, subjectAddress) = verifier.checkAttestationValidity(coSignedAttestation, identifier,  _attestorAddress, msg.sender);
         require(passedVerification, "Invalid Attestation used");
-        _tips[tipId].adrPayee = subjectAddress;
 
-        emit CollectTip(_tips[tipId].offerer, _tips[tipId].identifier, tipId, subjectAddress);
-        
-        //now pay
-        pay(tipId, subjectAddress, _tipFeePercentage);
+        for (uint256 index = 0; index < tipIds.length; index++)
+        {
+            uint256 tipId = tipIds[index];
+            require(_tips[tipId].adrPayee == address(0), "Tip already collected");
+            if (index > 0) { require(checkIdentifier(identifier, _tips[tipId].identifier), "Not your tip"); }
+            _tips[tipId].adrPayee = subjectAddress;
+            pay(tipId, subjectAddress, _tipFeePercentage);
+        }
+
+        emit CollectTips(_tips[0].identifier, subjectAddress);
     }
 
     function pay(uint256 tipId, address payable beneficiary, uint256 commissionMultiplier) internal
@@ -194,10 +208,15 @@ contract TipOffer is TipOfferData {
         for (uint256 index = 0; index < _tips[tipId].paymentTokens.length; index++)
         {
             IERC20 tokenContract = IERC20(_tips[tipId].paymentTokens[index].erc20);
-            uint256 commissionVal = (_tips[tipId].paymentTokens[index].amount * commissionMultiplier)/10000;
-            uint256 transferVal = _tips[tipId].paymentTokens[index].amount - commissionVal;
+            uint256 transferVal = _tips[tipId].paymentTokens[index].amount;
             _tips[tipId].paymentTokens[index].amount = 0; //zeroise to avoid re-entrancy attacks
-            if (commissionVal > 0) tokenContract.safeTransfer(owner, commissionVal);
+            if (commissionMultiplier > 0)
+            {
+                uint256 commissionVal = (transferVal * commissionMultiplier)/10000;
+                transferVal = transferVal - commissionVal;
+                tokenContract.safeTransfer(owner, commissionVal);
+            }
+            
             tokenContract.safeTransfer(beneficiary, transferVal);
         }
     }
@@ -214,6 +233,19 @@ contract TipOffer is TipOfferData {
         offerer = tip.offerer;
         payee = tip.adrPayee;
         completed = (tip.adrPayee != address(0));
+    }
+
+    function getTips(uint256[] memory tipIds) external view 
+        returns (TipQuery[] memory tips)
+    {
+        tips = new TipQuery[](tipIds.length);
+        for (uint256 index = 0; index < tipIds.length; index++)
+        {
+            Tip memory tip = _tips[tipIds[index]];
+            tips[index].paymentTokens = tip.paymentTokens;
+            tips[index].weiValue = tip.amtPayable;
+            tips[index].completed = (tip.adrPayee != address(0));
+        }
     }
     
     // Need to implement this to receive ERC721 Tokens
