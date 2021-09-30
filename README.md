@@ -24,6 +24,8 @@ The keys.secret format is like this:
 eg:
 ```876876aa878a787a878a787878b787b,87236487236487236478236478236487236487236487236487236487623487263487,http:///stormbird.duckdns.org/,END_DATA```
 
+The current contract in Rinkeby is here: ```0x10C663299248548BE18Ab4aEB1bA44C399bDAd84```. It is not yet proxied so it will change once I implement proxy.
+
 
 ## How it works
 
@@ -67,10 +69,14 @@ Where:
 6. Use the signature to build a CoSignedIdentifierAttestation in Attestation.id
 7. Cache the CoSignedIdentifierAttestation against the user's Full Social ID String.
 8. Query the event logs to find all events with matching ```identifier``` for the Full Social ID String. Query 'getTips' for each to determine if the tip is still valid (or use logs below).
+
 --- Current Implementation ---
+
 9. Ask user to pick the tip from the available tips
 10. Call the ```collectTip(uint256 tipId, bytes memory coSignedAttestation)```
+
 --- Planned Implementation ---
+
 9. Form an array of all the current tips.
 10. Call the ```collectTip(uint256[] tipIds, bytes memory coSignedAttestation)```
 ---
