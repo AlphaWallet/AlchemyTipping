@@ -67,10 +67,14 @@ Where:
 6. Use the signature to build a CoSignedIdentifierAttestation in Attestation.id
 7. Cache the CoSignedIdentifierAttestation against the user's Full Social ID String.
 8. Query the event logs to find all events with matching ```identifier``` for the Full Social ID String. Query 'getTips' for each to determine if the tip is still valid (or use logs below).
+
 --- Current Implementation ---
+
 9. Ask user to pick the tip from the available tips
 10. Call the ```collectTip(uint256 tipId, bytes memory coSignedAttestation)```
+
 --- Planned Implementation ---
+
 9. Form an array of all the current tips.
 10. Call the ```collectTip(uint256[] tipIds, bytes memory coSignedAttestation)```
 ---
