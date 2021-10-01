@@ -6,11 +6,16 @@ pragma solidity ^0.8.4;
 pragma experimental ABIEncoderV2; 
 
 import "hardhat/console.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
+import "@openzeppelin/contracts/utils/introspection/ERC165.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
+import "@openzeppelin/contracts-upgradeable/utils/AddressUpgradeable.sol";
 import "./interface/IVerifyAttestation.sol";
-import "./AddressUtil.sol";
 
 contract TipOfferData {
     struct PaymentToken {
@@ -47,12 +52,11 @@ contract TipOfferData {
     address _attestorAddress; //Attestor key
 }
 
-contract TipOffer is TipOfferData {
+contract TipOffer is TipOfferData, Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
-    address payable owner;
-
+    using AddressUpgradeable for address;
     using Strings for uint256;
-    using SafeERC20 for IERC20;
+    using SafeERC20Upgradeable for IERC20Upgradeable; //Can't use SafeERC20 as it's not compatible with UUPS call
 
     // this error shouldn't happen and should be monitored. Normally,
     // committed cryptocurrencies are payed out through a formula which
@@ -65,43 +69,43 @@ contract TipOffer is TipOfferData {
     error CallerNotAuthorised();
     error PayingOutBeforeOfferTaken();
 
-    modifier onlyOwner() {
-        require(owner == msg.sender, "Ownable: caller is not the owner");
-        _;
-    }
-
     bytes constant emptyBytes = new bytes(0x00);
 
-    constructor(address verificationContract) 
+    // its enough to test modifier onlyOwner, other checks, like isContract(), contains upgradeTo() method implemented by UUPSUpgradeable
+    function _authorizeUpgrade(address) internal override onlyOwner {}
+
+    // this function name required, Hardhat use it to call initialize() on proxy deploy step
+    function initialize(address verificationContract) public initializer
     {
-        owner = payable(msg.sender);
+        require(verificationContract.isContract(),"Address Must be a smartContract");
+        __Ownable_init();
         _tipId = 1; //set once, can never be set again (contract updates this value)
-        _tipFeePercentage = 100;
-        _attestorAddress = 0x5f7bFe752Ac1a45F67497d9dCDD9BbDA50A83955;
         _verifyAttestation = verificationContract;
+        _tipFeePercentage = 0;
+        _attestorAddress = 0x538080305560986811c3c1A2c5BCb4F37670EF7e; //Attestor key, needs to match key in Attestation.id
     }
 
     // Required for updating the verification contract address and commission
-    function reconfigure(address verificationContract, uint256 commission) external onlyOwner
+    function reconfigure(address verificationContract, uint256 commission) public onlyOwner
     {
-        require(AddressUtil.isContract(verificationContract), "Address must be a contract");
+        require(verificationContract.isContract(), "Address must be a contract");
         require(commission<=10000, "Commission limits 0..10000(100%)");
         _verifyAttestation = verificationContract;
         _tipFeePercentage = commission;
     }
 
-    function setAttestor(address attestorAddress) external onlyOwner
+    function setAttestor(address attestorAddress) public onlyOwner
     {
         _attestorAddress = attestorAddress;
+    }
+
+    function getAdmin() public view returns(address) {
+        return owner();
     }
 
     event CreateTip(address indexed offerer, string indexed identifier, uint256 indexed tipId);
     event CollectTips(string indexed identifier, address tipee);
     event CancelTip(address indexed offerer, string indexed identifier, uint256 indexed tipId);
-
-    function getAdmin() external view returns(address) {
-        return owner;
-    }
 
     /****
      * 
@@ -122,7 +126,7 @@ contract TipOffer is TipOfferData {
         for (uint256 index = 0; index < paymentTokens.length; index++)
         {
             _tips[_tipId].paymentTokens.push(paymentTokens[index]);
-            IERC20 paymentTokenContract = IERC20(paymentTokens[index].erc20);
+            IERC20Upgradeable paymentTokenContract = IERC20Upgradeable(paymentTokens[index].erc20);
             paymentTokenContract.safeTransferFrom(msg.sender, address(this), paymentTokens[index].amount); //can use safeTranser (vs safeTransferFrom) because createTip can only be called by owner
         }
         
@@ -185,7 +189,7 @@ contract TipOffer is TipOfferData {
 
             if (commissionWei > 0)
             {
-                (paymentSuccessful, ) = owner.call{value: commissionWei}(""); //commission
+                (paymentSuccessful, ) = owner().call{value: commissionWei}(""); //commission
                 if (!paymentSuccessful) {
                     revert CommissionPayoutFailed(tipId);
                 }
@@ -201,14 +205,14 @@ contract TipOffer is TipOfferData {
         // Note that this may change in future, we may want a single move from token owner's account to the payee
         for (uint256 index = 0; index < _tips[tipId].paymentTokens.length; index++)
         {
-            IERC20 tokenContract = IERC20(_tips[tipId].paymentTokens[index].erc20);
+            IERC20Upgradeable tokenContract = IERC20Upgradeable(_tips[tipId].paymentTokens[index].erc20);
             uint256 transferVal = _tips[tipId].paymentTokens[index].amount;
             _tips[tipId].paymentTokens[index].amount = 0; //zeroise to avoid re-entrancy attacks
             if (commissionMultiplier > 0)
             {
                 uint256 commissionVal = (transferVal * commissionMultiplier)/10000;
                 transferVal = transferVal - commissionVal;
-                tokenContract.safeTransfer(owner, commissionVal);
+                tokenContract.safeTransfer(owner(), commissionVal);
             }
             
             tokenContract.safeTransfer(beneficiary, transferVal);

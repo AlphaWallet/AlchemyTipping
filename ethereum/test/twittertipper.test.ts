@@ -8,8 +8,8 @@ import exp from "constants";
 
 describe("TwitterTipper.deploy", function () {
     let verifyAttestation: Contract;
-    let tipperContract: Contract;
     let stableCoin: Contract;
+    let proxyTipper: Contract;
 
     let owner: SignerWithAddress;
     let addr1: SignerWithAddress;
@@ -66,22 +66,28 @@ describe("TwitterTipper.deploy", function () {
             value: ethers.utils.parseEther("1.0")
         });
 
+        /*const AlchemyRetort = await ethers.getContractFactory("AlchemyRetort");
+        // proxyRetort = await upgrades.deployProxy(AlchemyRetort,[verifyAttestation.address, proxyRemix.address, randomAddress] ,{ kind: 'uups' });
+        proxyRetort = await upgrades.deployProxy(AlchemyRetort,[verifyAttestation.address, dvp.address, proxyRemix.address] ,{ kind: 'uups' });
+        await proxyRetort.deployed();*/
+
         const TwitterTipper = await ethers.getContractFactory("TipOffer");
-        tipperContract = await TwitterTipper.deploy(verifyAttestation.address);
-        await tipperContract.deployed();
+        // proxyRetort = await upgrades.deployProxy(AlchemyRetort,[verifyAttestation.address, proxyRemix.address, randomAddress] ,{ kind: 'uups' });
+        proxyTipper = await upgrades.deployProxy(TwitterTipper,[verifyAttestation.address]);
+        await proxyTipper.deployed();
 
 
-        console.log("Addr: " + tipperContract.address);
+        console.log("Addr: " + proxyTipper.address);
         console.log("Owner: " + owner.address);
         //console.log("createTip1 signature: " + answer);
 
         //sig1 = TwitterTipper.interface.functions.createTip.signature();
         //console.log("createTip signature: " + sig1);
 
-        let tt = await tipperContract.getAdmin();
+        let tt = await proxyTipper.getAdmin();
         console.log("admin: " + tt);
 
-        tt = await tipperContract.getTipFeeFactor();
+        tt = await proxyTipper.getTipFeeFactor();
         console.log("Fee: " + tt);
 
         const StableCoin = await ethers.getContractFactory("StableCoin");
@@ -97,7 +103,8 @@ describe("TwitterTipper.deploy", function () {
         console.log(name + " has " + totalBalance + " " + symbol + "(" + stableCoinOwner + ")");
         console.log(name + " (" + stableCoin.address + ")" );
 
-        //tt = await tipperContract.commitNFT([], twitter, {value: 1});
+        //set contract to use debug attestation key
+        proxyTipper.setAttestor(attestorAddress);
 
     })
 
@@ -114,13 +121,13 @@ describe("TwitterTipper.deploy", function () {
             console.log("TestAddr Bal: " + testAddrBal);
 
             let tx;
-            const transactionData = await tipperContract.connect(testAddr).createTip([], twitter, {
+            const transactionData = await proxyTipper.connect(testAddr).createTip([], twitter, {
                 value: ethers.utils.parseEther("0.1"),
             });
 
             console.log("OUT: " + transactionData.data );
 
-            let estimatedGasCommit = await tipperContract.connect(testAddr).estimateGas.createTip([], twitter, {
+            let estimatedGasCommit = await proxyTipper.connect(testAddr).estimateGas.createTip([], twitter, {
                 value: ethers.utils.parseEther("0.1"),
             });
             console.log('estimatedGasCommit = ' + estimatedGasCommit );
@@ -137,7 +144,7 @@ describe("TwitterTipper.deploy", function () {
             await showTipFromId(2);
 
             //now claim this tip
-            const transactionData2 = await tipperContract.connect(addr1).collectTip([1], universalIdAttestation);
+            const transactionData2 = await proxyTipper.connect(addr1).collectTip([1], universalIdAttestation);
 
             await showTipFromId(1);
             testAddrBal = await ethers.provider.getBalance(subjectAddress);
@@ -150,10 +157,10 @@ describe("TwitterTipper.deploy", function () {
             console.log("TestBal Stablecoin: " + testBal);
 
             //call approve
-            await stableCoin.connect(testAddr).approve(tipperContract.address, ethers.utils.parseEther("1.3"));
+            await stableCoin.connect(testAddr).approve(proxyTipper.address, ethers.utils.parseEther("1.3"));
 
             //make commitment
-            let erc20TipTx = await tipperContract.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("1.3"), "0x00"]], twitter, {
+            let erc20TipTx = await proxyTipper.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("1.3"), "0x00"]], twitter, {
                 value: ethers.utils.parseEther("0.2"),
             });
 
@@ -168,23 +175,23 @@ describe("TwitterTipper.deploy", function () {
             testAddrBal = await stableCoin.connect(testAddr).balanceOf(subjectAddress);
             console.log("StableCoin Subject Bal: " + testAddrBal);
 
-            testAddrBal = await stableCoin.connect(testAddr).balanceOf(tipperContract.address);
+            testAddrBal = await stableCoin.connect(testAddr).balanceOf(proxyTipper.address);
             console.log("StableCoin Contract Bal: " + testAddrBal);
 
             //attempt to claim tip by imposter
-            await expect(tipperContract.connect(addr1).collectTip([2], fakeUniversalIdAttestation)).to.be.revertedWith('Invalid Attestation used');
+            await expect(proxyTipper.connect(addr1).collectTip([2], fakeUniversalIdAttestation)).to.be.revertedWith('Invalid Attestation used');
 
             //create another commitment
             //call approve
-            await stableCoin.connect(testAddr).approve(tipperContract.address, ethers.utils.parseEther("4.1"));
-            erc20TipTx = await tipperContract.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("4.1"), "0x00"]], twitter, {
+            await stableCoin.connect(testAddr).approve(proxyTipper.address, ethers.utils.parseEther("4.1"));
+            erc20TipTx = await proxyTipper.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("4.1"), "0x00"]], twitter, {
                 value: ethers.utils.parseEther("1.1"),
             });
 
             await showTips([1, 2, 3]);
 
             //claim tip
-            const transactionData3 = await tipperContract.connect(addr1).collectTip([2,3], universalIdAttestation); //show check
+            const transactionData3 = await proxyTipper.connect(addr1).collectTip([2,3], universalIdAttestation); //show check
 
             //check new balance
             testAddrBal = await ethers.provider.getBalance(subjectAddress);
@@ -195,50 +202,101 @@ describe("TwitterTipper.deploy", function () {
 
             //Now try to claim tips which have one that's for someone else
             //setup tips 4,5 and 6 (6 is for a different user)
-            await stableCoin.connect(testAddr).approve(tipperContract.address, ethers.utils.parseEther("4.1"));
-            erc20TipTx = await tipperContract.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("4.1"), "0x00"]], twitter, {
+            await stableCoin.connect(testAddr).approve(proxyTipper.address, ethers.utils.parseEther("4.1"));
+            erc20TipTx = await proxyTipper.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("4.1"), "0x00"]], twitter, {
                 value: ethers.utils.parseEther("1.1"),
             });
 
-            await stableCoin.connect(testAddr).approve(tipperContract.address, ethers.utils.parseEther("6.2"));
-            erc20TipTx = await tipperContract.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("6.2"), "0x00"]], twitter, {
+            await stableCoin.connect(testAddr).approve(proxyTipper.address, ethers.utils.parseEther("6.2"));
+            erc20TipTx = await proxyTipper.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("6.2"), "0x00"]], twitter, {
                 value: ethers.utils.parseEther("3.0"),
             });
 
-            await stableCoin.connect(testAddr).approve(tipperContract.address, ethers.utils.parseEther("3.2"));
-            erc20TipTx = await tipperContract.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("3.2"), "0x00"]], "hekatonchires 777", {
+            await stableCoin.connect(testAddr).approve(proxyTipper.address, ethers.utils.parseEther("3.2"));
+            erc20TipTx = await proxyTipper.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("3.2"), "0x00"]], "hekatonchires 777", {
                 value: ethers.utils.parseEther("3.0"),
             });
 
             //now try to claim all under the main attestation
-            await expect(tipperContract.connect(addr1).collectTip([4,5,6], universalIdAttestation)).to.be.revertedWith('Not your tip');
+            await expect(proxyTipper.connect(addr1).collectTip([4,5,6], universalIdAttestation)).to.be.revertedWith('Not your tip');
 
             //add another tip
-            await stableCoin.connect(testAddr).approve(tipperContract.address, ethers.utils.parseEther("2.2"));
-            erc20TipTx = await tipperContract.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("2.2"), "0x00"]], twitter, {
+            await stableCoin.connect(testAddr).approve(proxyTipper.address, ethers.utils.parseEther("2.2"));
+            erc20TipTx = await proxyTipper.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("2.2"), "0x00"]], twitter, {
                 value: ethers.utils.parseEther("0.01"),
             });
 
             await showTips([4, 5, 6, 7]);
 
             //finally claim all the tips we are allowed to
-            const transactionData4 = await tipperContract.connect(addr1).collectTip([4,5,7], universalIdAttestation);
+            const transactionData4 = await proxyTipper.connect(addr1).collectTip([4,5,7], universalIdAttestation);
 
             //check new balance
             testAddrBal = await ethers.provider.getBalance(subjectAddress);
             console.log("Subject Bal: " + testAddrBal);
 
+            let testStableBal = await stableCoin.connect(testAddr).balanceOf(subjectAddress);
+            console.log("StableCoin Subject Bal: " + testStableBal);
+
+            await showTips([4, 5, 6, 7]);
+
+            //ensure balance is correct
+            //Subject Bal: 5510000000000000000
+            //StableCoin Subject Bal: 17900000000000000000
+
+            expect(testAddrBal).to.be.equal("5510000000000000000");
+            expect(testStableBal).to.be.equal("17900000000000000000");
+        }
+    });
+
+    it("Redeploy and test another tip claim", async function(){
+        // create a tip transaction and try to claim it
+        {
+            //deploy new logic and upgrade
+            const TwitterTipper = await ethers.getContractFactory("TipOffer");
+
+            const newProxyTipper = await upgrades.upgradeProxy(proxyTipper.address, TwitterTipper);
+            await newProxyTipper.deployed();
+
+            //create some tips
+            //Now try to claim tips which have one that's for someone else
+            //setup tips 4,5 and 6 (6 is for a different user)
+            await stableCoin.connect(testAddr).approve(proxyTipper.address, ethers.utils.parseEther("4.1"));
+            let erc20TipTx = await proxyTipper.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("4.1"), "0x00"]], twitter, {
+                value: ethers.utils.parseEther("1.1"),
+            });
+
+            await stableCoin.connect(testAddr).approve(proxyTipper.address, ethers.utils.parseEther("6.2"));
+            erc20TipTx = await proxyTipper.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("6.2"), "0x00"]], twitter, {
+                value: ethers.utils.parseEther("3.0"),
+            });
+
+            //add another tip
+            await stableCoin.connect(testAddr).approve(proxyTipper.address, ethers.utils.parseEther("2.2"));
+            erc20TipTx = await proxyTipper.connect(testAddr).createTip([[stableCoin.address, ethers.utils.parseEther("2.2"), "0x00"]], twitter, {
+                value: ethers.utils.parseEther("0.01"),
+            });
+
+            await showTips([8, 9, 10]);
+
+            //finally claim all the tips we are allowed to
+            const transactionData4 = await proxyTipper.connect(addr1).collectTip([8,9,10], universalIdAttestation);
+
+            //check new balance
+            var testAddrBal = await ethers.provider.getBalance(subjectAddress);
+            console.log("Subject Bal: " + testAddrBal);
+
             testAddrBal = await stableCoin.connect(testAddr).balanceOf(subjectAddress);
             console.log("StableCoin Subject Bal: " + testAddrBal);
 
-            await showTips([4, 5, 6, 7]);
+            await showTips([8, 9, 10]);
         }
     });
 
     async function showTipFromId(tipId: number)
     {
         console.log("Tip commit ID: " + tipId);
-        let tip = await tipperContract.getTip(tipId);
+        let tip = await proxyTipper.getTip(tipId);
 
         //(PaymentToken[] memory paymentTokens, address offerer, uint256 weiValue, string memory identifier, bool completed)
         console.log("Offerer/owner: " + tip.offerer);
@@ -257,7 +315,7 @@ describe("TwitterTipper.deploy", function () {
     {
         console.log("-----");
         console.log("Batch Query Tips: " + tipId);
-        let tips = await tipperContract.getTips(tipId);
+        let tips = await proxyTipper.getTips(tipId);
 
         for (let i = 0; i < tips.length; i++) {
             //(PaymentToken[] memory paymentTokens, address offerer, uint256 weiValue, string memory identifier, bool completed)
