@@ -54,7 +54,7 @@ describe("TwitterTipper.deploy", function () {
         [owner, addr1, addr2] = await ethers.getSigners();
 
         testAddr = new ethers.Wallet(anyPrivateKey, owner.provider);
-        testAddr2 = new ethers.Wallet(attestationSubjectPrivateKey, owner.provider);
+        testAddr2 = new ethers.Wallet(attestationSubjectPrivateKey, owner.provider); //testAddr2 address is subjectAddress
         deployAddr = new ethers.Wallet(anyPrivateKey2, owner.provider);
 
         const VerifyAttestation = await ethers.getContractFactory("VerifyAttestation");
@@ -66,23 +66,12 @@ describe("TwitterTipper.deploy", function () {
             value: ethers.utils.parseEther("1.0")
         });
 
-        /*const AlchemyRetort = await ethers.getContractFactory("AlchemyRetort");
-        // proxyRetort = await upgrades.deployProxy(AlchemyRetort,[verifyAttestation.address, proxyRemix.address, randomAddress] ,{ kind: 'uups' });
-        proxyRetort = await upgrades.deployProxy(AlchemyRetort,[verifyAttestation.address, dvp.address, proxyRemix.address] ,{ kind: 'uups' });
-        await proxyRetort.deployed();*/
-
         const TwitterTipper = await ethers.getContractFactory("TipOffer");
-        // proxyRetort = await upgrades.deployProxy(AlchemyRetort,[verifyAttestation.address, proxyRemix.address, randomAddress] ,{ kind: 'uups' });
-        proxyTipper = await upgrades.deployProxy(TwitterTipper,[verifyAttestation.address]);
+        proxyTipper = await upgrades.deployProxy(TwitterTipper,[verifyAttestation.address] ,{ kind: 'uups' });
         await proxyTipper.deployed();
-
 
         console.log("Addr: " + proxyTipper.address);
         console.log("Owner: " + owner.address);
-        //console.log("createTip1 signature: " + answer);
-
-        //sig1 = TwitterTipper.interface.functions.createTip.signature();
-        //console.log("createTip signature: " + sig1);
 
         let tt = await proxyTipper.getAdmin();
         console.log("admin: " + tt);
@@ -144,7 +133,7 @@ describe("TwitterTipper.deploy", function () {
             await showTipFromId(2);
 
             //now claim this tip
-            const transactionData2 = await proxyTipper.connect(addr1).collectTip([1], universalIdAttestation);
+            const transactionData2 = await proxyTipper.connect(deployAddr).collectTip([1], universalIdAttestation);
 
             await showTipFromId(1);
             testAddrBal = await ethers.provider.getBalance(subjectAddress);
@@ -228,8 +217,8 @@ describe("TwitterTipper.deploy", function () {
 
             await showTips([4, 5, 6, 7]);
 
-            //finally claim all the tips we are allowed to
-            const transactionData4 = await proxyTipper.connect(addr1).collectTip([4,5,7], universalIdAttestation);
+            //finally claim all the tips we are allowed to, using a third payer address (testAddr2)
+            const transactionData4 = await proxyTipper.connect(deployAddr).collectTip([4,5,7], universalIdAttestation);
 
             //check new balance
             testAddrBal = await ethers.provider.getBalance(subjectAddress);
@@ -243,7 +232,7 @@ describe("TwitterTipper.deploy", function () {
             //ensure balance is correct
             //Subject Bal: 5510000000000000000
             //StableCoin Subject Bal: 17900000000000000000
-
+                                           
             expect(testAddrBal).to.be.equal("5510000000000000000");
             expect(testStableBal).to.be.equal("17900000000000000000");
         }
@@ -295,6 +284,7 @@ describe("TwitterTipper.deploy", function () {
 
     async function showTipFromId(tipId: number)
     {
+        console.log("-----");
         console.log("Tip commit ID: " + tipId);
         let tip = await proxyTipper.getTip(tipId);
 
@@ -309,6 +299,7 @@ describe("TwitterTipper.deploy", function () {
             let amount :BigNumber = tip.paymentTokens[i].amount;
             console.log("ERC20 Token: " + erc20Address + " (" + amount + ")");
         } 
+        console.log("-----");
     }
 
     async function showTips(tipId: number[])
