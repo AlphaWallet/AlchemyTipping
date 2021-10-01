@@ -93,7 +93,7 @@ describe("TwitterTipper.deploy", function () {
         console.log(name + " (" + stableCoin.address + ")" );
 
         //set contract to use debug attestation key
-        proxyTipper.setAttestor(attestorAddress);
+        await proxyTipper.setAttestor(attestorAddress);
 
     })
 
