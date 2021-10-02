@@ -36,13 +36,10 @@
     <input type="hidden" name="paramName" value="paramName"/>
     <br/>
     <hr/>
-    <h5>Select Tip ID # to claim:</h5>
-    <input id="tipId" type="number" name="tipId"/>
+    <h5>Click below to claim your tips! You will not pay any gas or need to sign any transaction.<br/>Can be done from normal (non web3) desktop browser via the attestation</h5>
     <br/>
-    <br/>
-    <br/>
-    <div id="claim_tip"><button class="btn-lg btn-primary" onclick='claim();'>Collect Tip</button></div>
-    <h4>Claim your tip on AlphaWallet: </h4>
+    <div id="claim_tip"><button class="btn-lg btn-primary" onclick='throttle(claim(), 1000);'>Collect Tips</button></div>
+    <h4>Don't have an Ethereum wallet to check your tip balance? Check your tips on AlphaWallet:</h4>
     <p id="download_app">
         <a href="https://play.google.com/store/apps/details?id=io.stormbird.wallet">
             <img width="117" height="40" alt="Google Playstore"
@@ -55,22 +52,29 @@
     </p>
 </div>
 <script>
-    function connect () {
-        if (typeof ethereum !== 'undefined') {
-           ethereum.enable()
-            .catch(console.error)
+
+    let timeout;
+    let claimed;
+    const throttle = (func, limit) => {
+        if (!timeout) {
+            func();
+            timeout = setTimeout(function() {
+                timeout = undefined;
+            }, limit);
         }
-    }
+    };
 
     function claim()
     {
-        var account = web3.eth.accounts[0];
-        if (!account) return connect()
-        var userId = '[USER_ID]';
+        if (!claimed)
+        {
+            claimed = setTimeout(function() {
+                //NOP
+            }, 2000);
 
-        var tipIdVal = document.getElementById("tipId").value;
-
-        window.location.replace('/collectTip/' + account + '/' + tipIdVal + '/' + userId);
+            var userId = '[USER_ID]';
+            window.location.replace('/collectTip/' + userId);
+        }
     }
 </script>
 </body>

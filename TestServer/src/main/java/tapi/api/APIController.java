@@ -49,6 +49,7 @@ import twitter4j.auth.RequestToken;
 import twitter4j.conf.Configuration;
 import twitter4j.conf.ConfigurationBuilder;
 
+import javax.annotation.PreDestroy;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.*;
@@ -64,6 +65,8 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SignatureException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static java.lang.Thread.sleep;
@@ -76,7 +79,7 @@ import static tapi.api.CryptoFunctions.sigFromByteArray;
 @RequestMapping("/")
 public class APIController
 {
-    private static final String CONTRACT = "0x10C663299248548BE18Ab4aEB1bA44C399bDAd84";
+    private static final String CONTRACT = "0xE6aAf7C1bBD92B6FFa76ADF47816572EC9f5Ba76";
     private static final String ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
     private static final String ERC20_CONTRACT = "0x792A5dF74641bE309146F4D5cF99D61dd78bAF08";
     private static final BigDecimal DAI_WEI_FACTOR = BigDecimal.valueOf(1000000000000000000L);
@@ -110,7 +113,6 @@ public class APIController
 
     @Nullable
     private Disposable gasFetchDisposable;
-
 
     @Autowired
     public APIController()
@@ -298,18 +300,19 @@ public class APIController
                 Arrays.<TypeReference<?>>asList(new TypeReference<Bool>() {}));
     }
 
-    private static Function collectTip(BigInteger commitmentId, CoSignedIdentifierAttestation wrappedAttestation)
+    private static Function collectTip(List<BigInteger> tipIds, CoSignedIdentifierAttestation wrappedAttestation)
     {
         return new Function("collectTip",
-                Arrays.asList(new Uint256(commitmentId), new DynamicBytes(wrappedAttestation.getDerEncoding())),
+                Arrays.asList(getTipIds(tipIds), new DynamicBytes(wrappedAttestation.getDerEncoding())),
                 Arrays.<TypeReference<?>>asList(new TypeReference<Bool>() {}));
     }
 
-    private static Function tipFunction(String identifier)
+    protected static org.web3j.abi.datatypes.DynamicArray<?> getTipIds(List<BigInteger> tipIds)
     {
-        return new Function("createTip1",
-                Arrays.asList(new Utf8String(identifier)),
-                Arrays.<TypeReference<?>>asList(new TypeReference<Bool>() {}));
+        List<Uint256> tipIdVals = new ArrayList<>();
+        for (BigInteger tipId : tipIds) { tipIdVals.add(new Uint256(tipId)); }
+        return new org.web3j.abi.datatypes.DynamicArray<>(
+                Uint256.class, tipIdVals);
     }
 
     //This is a ghastly hack, but since this part of web3j is broken this is the most expedient fix.
@@ -323,6 +326,38 @@ public class APIController
         idHex = idHex + zeroes;
         idHex = idHex.substring(0, ethWords*64);
 
+        String function = "0x9218e0ee" + "0000000000000000000000000000000000000000000000000000000000000040";
+
+        if (tokens.size() > 0)
+        {
+            function +=
+                    "0000000000000000000000000000000000000000000000000000000000000120" +
+                    "0000000000000000000000000000000000000000000000000000000000000001" +
+                    "0000000000000000000000000000000000000000000000000000000000000020" +
+                    "000000000000000000000000" + Numeric.cleanHexPrefix(tokens.get(0).address.getValue()) +
+                    Numeric.toHexStringNoPrefixZeroPadded(tokens.get(0).value.getValue(), 64) +
+                    "0000000000000000000000000000000000000000000000000000000000000060" +
+                    "0000000000000000000000000000000000000000000000000000000000000001";
+        }
+        else
+        { //special case if payment tokens is empty (ie only eth payment)
+            function +=
+                    "0000000000000000000000000000000000000000000000000000000000000060";
+        }
+
+        function += "0000000000000000000000000000000000000000000000000000000000000000" +
+                Numeric.toHexStringNoPrefixZeroPadded(BigInteger.valueOf(identifier.length()), 64) +
+                idHex;
+
+/*
+        0x9218e0ee
+                 0000000000000000000000000000000000000000000000000000000000000040
+                 0000000000000000000000000000000000000000000000000000000000000060
+                 0000000000000000000000000000000000000000000000000000000000000000
+                 0000000000000000000000000000000000000000000000000000000000000028
+                 68747470733a2f2f747769747465722e636f6d2f7a68616e6777656977752032
+                 3035353231363736000000000000000000000000000000000000000000000000
+
         String function = "0x9218e0ee" + // (for createTip(token[], id) : 0x9218e0ee
                 "0000000000000000000000000000000000000000000000000000000000000040" +
                 "0000000000000000000000000000000000000000000000000000000000000120" +
@@ -335,6 +370,7 @@ public class APIController
                 "0000000000000000000000000000000000000000000000000000000000000000" +
                 Numeric.toHexStringNoPrefixZeroPadded(BigInteger.valueOf(identifier.length()), 64) +
                 idHex;
+                */
 
         return function;
     }
@@ -652,6 +688,13 @@ public class APIController
             //check the eth amount:
             offerVal = new BigDecimal(ethAmount);
             offerVal = offerVal.multiply(WEI_FACTOR);
+        }
+        catch (Exception e)
+        {
+            //
+        }
+
+        try {
             if (WalletUtils.isValidAddress(erc20Addr))
             {
                 erc20Val = new BigDecimal(erc20Amount).multiply(WEI_FACTOR); //TODO: Grab decimal value of erc20 and validate
@@ -659,7 +702,7 @@ public class APIController
         }
         catch (Exception e)
         {
-            e.printStackTrace();
+            //
         }
 
         if (offerVal.equals(BigDecimal.ZERO) && erc20Val.equals(BigDecimal.ZERO))
@@ -673,19 +716,13 @@ public class APIController
         byte[] txBytes;
         String encodedFunction;
         String twitterId = data.getIdentifier();
-
-        if (erc20Val.equals(BigDecimal.ZERO))
+        List<PaymentToken> pTokens = new ArrayList<>();
+        if (erc20Val.compareTo(BigDecimal.ZERO) > 0)
         {
-            Function func = tipFunction(twitterId);
-            encodedFunction = FunctionEncoder.encode(func);
-        }
-        else
-        {
-            PaymentToken pt = new PaymentToken(new Address(erc20Addr), new Uint256(erc20Val.toBigInteger()), new DynamicBytes(Numeric.hexStringToByteArray("0x00")));
-            List<PaymentToken> pTokens = new ArrayList<>(Collections.singletonList(pt));
-            encodedFunction = tipBytes(pTokens, twitterId);
+            pTokens.add(new PaymentToken(new Address(erc20Addr), new Uint256(erc20Val.toBigInteger()), new DynamicBytes(Numeric.hexStringToByteArray("0x00"))));
         }
 
+        encodedFunction = tipBytes(pTokens, twitterId);
         txBytes = Numeric.hexStringToByteArray(Numeric.cleanHexPrefix(encodedFunction));
 
         model.addAttribute("profilepic", data.profile_image_url);
@@ -912,7 +949,7 @@ public class APIController
             //return "redirect:twitterLogin";
         }
 
-        return "";
+        return "twitter_login";
     }
 
     //window.location.replace('/getPublicKey/' + account + '/' + identifier + '/' + result.result + '/' + msg + '/' + username);
@@ -963,7 +1000,7 @@ public class APIController
             model.addAttribute("publickey", "'" + Numeric.toHexString(spki.getEncoded()) + "'");
             model.addAttribute("signedAttestation", "'" + Numeric.toHexString(att.getDerEncoding()) + "'"); //NB: we need to pass the raw attestation because 'Sign Personal' adds the PERSONAL prefix
             model.addAttribute("username", "'" + username + "'");
-            model.addAttribute("id", "'" + id + "'"); //0x319C80B1cA30E4C1E5dD5AC21419348e05943305
+            model.addAttribute("id", "'" + id + "'");
         }
         catch (SignatureException e)
         {
@@ -973,7 +1010,6 @@ public class APIController
         return "askForAttestationSignature";
     }
 
-    //window.location.replace('/generatedCoSigned/' + account + '/' + result.result + '/' + publickey + '/' + signedAttestation + '/' + userName);
     @GetMapping(value = "/generatedCoSigned/{address}/{signature}/{publickey}/{signedAttestation}/{userName}/{id}")
     public @ResponseBody String generatedCoSigned(@PathVariable("address") String address,
                                      @PathVariable("signature") String signature,
@@ -1002,43 +1038,55 @@ public class APIController
         return showTipList(identifier, id);
     }
 
-    private String showTipList(String identifier, String id)
+    private ExecutorService executor = Executors.newSingleThreadExecutor();
+
+    @PreDestroy
+    public void onDestroy() {
+        // needed to avoid resource leak
+        executor.shutdown();
+    }
+
+    private String showTipList(final String fullIdentifier, final String id)
     {
-        String initHTML = loadFile("templates/selectTip.html");
-        final BigDecimal weiFactor = BigDecimal.TEN.pow(18);
+        executor.submit(() -> {
+            String initHTML = loadFile("templates/selectTip.html");
+            final BigDecimal weiFactor = BigDecimal.TEN.pow(18);
 
-        //now build a list of tips
-        int index = identifier.indexOf(TWITTER_URL);
-        identifier = identifier.substring(index);
+            //now build a list of tips
+            int index = fullIdentifier.indexOf(TWITTER_URL);
+            final String identifier = fullIdentifier.substring(index);
 
-        Map<BigInteger, Tip> tips = getTipListForUser(identifier);
+            Map<BigInteger, Tip> tips = getTipListForUser(identifier);
 
-        tipUserMap.put(id, tips);
+            tipUserMap.put(id, tips);
 
-        StringBuilder tokenList = new StringBuilder();
+            StringBuilder tokenList = new StringBuilder();
 
-        for (BigInteger tipId : tips.keySet()) {
-            Tip tip = tips.get(tipId);
-            tokenList.append("<h4>Tip ID #").append(tipId.toString()).append("</h4>");
-            tokenList.append("<br/>");
-            BigDecimal offer = (new BigDecimal(tip.weiValue)).divide(weiFactor);
-            if (offer.compareTo(BigDecimal.ZERO) > 0) {
-                tokenList.append("Tip Eth Value: ").append("<b>").append(offer.toString()).append(" ETH</b><br/>");
-            }
-            if (tip.paymentTokens != null && tip.paymentTokens.length > 0)
-            {
-                BigDecimal tokenOffer = (new BigDecimal(tip.paymentTokens[0].value.getValue())).divide(weiFactor); //TODO: Might not always be 18
-                if (tokenOffer.compareTo(BigDecimal.ZERO) > 0)
+            for (BigInteger tipId : tips.keySet()) {
+                Tip tip = tips.get(tipId);
+                tokenList.append("<h4>Tip ID #").append(tipId.toString()).append("</h4>");
+                tokenList.append("<br/>");
+                BigDecimal offer = (new BigDecimal(tip.weiValue)).divide(weiFactor);
+                if (offer.compareTo(BigDecimal.ZERO) > 0) {
+                    tokenList.append("Tip Eth Value: ").append("<b>").append(offer.toString()).append(" ETH</b><br/>");
+                }
+                if (tip.paymentTokens != null && tip.paymentTokens.length > 0)
                 {
-                    tokenList.append("Tip ERC20 Token: ").append("<b>").append(tip.paymentTokens[0].address).append("</b><br/>Amount:<b>").append(tokenOffer.toString()).append("</b><br/>");
+                    BigDecimal tokenOffer = (new BigDecimal(tip.paymentTokens[0].value.getValue())).divide(weiFactor); //TODO: Might not always be 18
+                    if (tokenOffer.compareTo(BigDecimal.ZERO) > 0)
+                    {
+                        tokenList.append("Tip ERC20 Token: ").append("<b>").append(tip.paymentTokens[0].address).append("</b><br/>Amount:<b>").append(tokenOffer.toString()).append("</b><br/>");
+                    }
                 }
             }
-        }
 
-        initHTML = initHTML.replace("[TIP_LIST]", tokenList.toString());
-        initHTML = initHTML.replace("[USER_ID]", id);
+            initHTML = initHTML.replace("[TIP_LIST]", tokenList.toString());
+            initHTML = initHTML.replace("[USER_ID]", id);
 
-        return initHTML;
+            return initHTML;
+        });
+
+        return "findingTips";
     }
 
     private Map<BigInteger, Tip> getTipListForUser(String identifier)
@@ -1077,78 +1125,39 @@ public class APIController
 
 
     //1. Find user's tips
-    //window.location.replace('/collectTip/' + account + '/' + tipId + '/' + userName);
-    @GetMapping(value = "/collectTip/{account}/{tipId}/{id}")
-    public String claim(@PathVariable("account") String account,
-                                      @PathVariable("tipId") String tipId,
-                                      @PathVariable("id") String id,
+    @GetMapping(value = "/collectTip/{id}")
+    public String claim(@PathVariable("id") String id,
                              Model model) {
 
         //pull tip and attestation
         CoSignedIdentifierAttestation att = attestationMap.get(id);
         Map<BigInteger, Tip> tips = tipUserMap.get(id);
-        BigInteger tipIdVal;
-        final BigDecimal weiFactor = BigDecimal.TEN.pow(18);
 
-        try
-        {
-            tipIdVal = new BigInteger(tipId);
-        }
-        catch (Exception e)
-        {
-            tipIdVal = BigInteger.ZERO;
-        }
+        if (tips == null) { return "tipClaimed"; }
 
-        Tip thisTip = tips != null ? tips.get(tipIdVal) : null;
+        //build list of tips to claim
+        List<BigInteger> tipList = new ArrayList<>(tips.keySet());
 
-        if (att == null || tips == null || thisTip == null || tips.size() == 0 || tipIdVal.equals(BigInteger.ZERO))
+        if (att == null || tipList.size() == 0)
         {
             return "error"; // TODO: show error
         }
 
         //form claim transaction for user to call
-        Function claim = collectTip(tipIdVal, att);
-        tips.remove(tipIdVal);
+        Function claim = collectTip(tipList, att);
+        tipUserMap.remove(id);
 
         String encodedFunction = FunctionEncoder.encode(claim);
         byte[] functionCode = Numeric.hexStringToByteArray(Numeric.cleanHexPrefix(encodedFunction));
-        TwitterData data = twitterIdMap.get(id);
 
-        BigDecimal eth_value = (new BigDecimal(thisTip.weiValue)).divide(weiFactor);
+        //now call the collectTip
+        final BigInteger useGasPrice = currentGasPrice.multiply(GWEI_FACTOR).toBigInteger();
 
-        //Now ask user to push the transaction
-        model.addAttribute("profilepic", data.profile_image_url);
-        model.addAttribute("username", data.username);
-        model.addAttribute("tx_bytes", "'" + Numeric.toHexString(functionCode) + "'");
-        model.addAttribute("contract_address", "'" + CONTRACT + "'");
-        model.addAttribute("gas_price", currentGasPrice.multiply(GWEI_FACTOR).toBigInteger().toString());
-        model.addAttribute("gas_limit", GAS_LIMIT_CONTRACT.toString());
-        model.addAttribute("expected_id", CHAIN_ID);
-        model.addAttribute("expected_text", "'" + CHAIN_NAME + "'");
-        model.addAttribute("eth_display", eth_value.toString());
+        String txHashStr = createTransaction(getAdminKeyPair(), CONTRACT, BigInteger.ZERO, useGasPrice, GAS_LIMIT_CONTRACT, functionCode, CHAIN_ID)
+                .blockingGet();
 
-        BigDecimal erc20Val = BigDecimal.ZERO;
-        String erc20Addr = " ";
-        try {
-            //check the eth amount:
-
-            BigInteger erc20RawVal = thisTip.paymentTokens.length > 0 ? thisTip.paymentTokens[0].value.getValue() : BigInteger.ZERO;
-
-            if (erc20RawVal.compareTo(BigInteger.ZERO) > 0)
-            {
-                erc20Val = new BigDecimal(erc20RawVal).divide(WEI_FACTOR, RoundingMode.HALF_DOWN); //TODO: Grab decimal value of erc20 and validate
-                erc20Addr = thisTip.paymentTokens[0].address.toString();
-            }
-        }
-        catch (Exception e)
-        {
-            e.printStackTrace();
-        }
-
-        model.addAttribute("erc20addr", "'" + erc20Addr + "'");
-        model.addAttribute("erc20val", erc20Val.toString());
-
-        return "callClaim";
+        model.addAttribute("result_hash", "'" + txHashStr + "'");
+        return "tipClaimed";
     }
 
     //3. Wait for approve transaction to be written to the blockchain,

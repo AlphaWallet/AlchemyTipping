@@ -67,7 +67,7 @@
     <input id="erc20Amount" type="number" name="erc20Amount"/>
     <br/>
     <br/>
-    <div><button class="btn-lg btn-primary" th:attr="onclick='generateCode();'">Validate Tip</button></div>
+    <div><button class="btn-lg btn-primary" th:attr="onclick='throttle(generateCode(), 500);'">Validate Tip</button></div>
     <h4>Don't have an Ethereum wallet? Use AlphaWallet: </h4>
     <p id="download_app">
         <a href="https://play.google.com/store/apps/details?id=io.stormbird.wallet">
@@ -102,6 +102,16 @@
         window.location.replace('/signOffer/' + account);
     }
 
+    let timeout;
+    const throttle = (func, limit) => {
+        if (!timeout) {
+            func();
+            timeout = setTimeout(function() {
+                timeout = undefined;
+            }, limit);
+        }
+    };
+
     function generateCode()
     {
         var account = web3.eth.coinbase;
@@ -111,11 +121,10 @@
         var erc20Addr = document.getElementById("erc20Address").value;
         var erc20Amount = document.getElementById("erc20Amount").value;
 
-        if (eth === '') eth = 'VV';
+        if (eth === '') eth = '0';
         if (erc20Addr === '') erc20Addr = 'VV';
-        if (erc20Amount === '') erc20Amount = 'VV';
+        if (erc20Amount === '') erc20Amount = '0';
 
-        //createTipTx/{username}/{eth_amount}/{erc20_addr}/{erc20_amount}
         window.location.replace('/createTipTx/' + twitterName + '/' + eth + '/' + erc20Addr + '/' + erc20Amount );
     }
 

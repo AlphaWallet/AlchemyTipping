@@ -27,7 +27,8 @@
     </style>
 </head>
 <!--<body th:attr="onload='components(' + ${erc20val} + ',' + ${tx_bytes} + ',' + ${contract_address} + ',' + ${gas_price} + ',' + ${gas_limit} + ',' + ${expected_id} + ',' + ${expected_text} + ');'">-->
-<body th:attr="onload='components(' + ${erc20val} + ',' + ${tx_bytes} + ',' + ${contract_address} + ',' + ${eth} + ',' + ${gas_price} + ',' + ${gas_limit} + ',' + ${expected_id} + ',' + ${expected_text} + ',' + ${approve_tx} + ',' + ${erc20addr} + ');'">
+<!--<body th:attr="onload='components(' + ${erc20val} + ',' + ${tx_bytes} + ',' + ${contract_address} + ',' + ${eth} + ',' + ${gas_price} + ',' + ${gas_limit} + ',' + ${expected_id} + ',' + ${expected_text} + ',' + ${approve_tx} + ',' + ${erc20addr} + ', true);'">-->
+<body>
 <div class="jumbotron">
     <h1>Alchemy Twitter Tipping</h1>
     <div id="bodyWrap">
@@ -51,11 +52,18 @@
     </div>
 </div>
 <br/>
-<div><button class="btn-lg btn-primary" th:attr="onclick='components(' + ${erc20val} + ',' + ${tx_bytes} + ',' + ${contract_address} + ',' + ${eth} + ',' + ${gas_price} + ',' + ${gas_limit} + ',' + ${expected_id} + ',' + ${expected_text} + ',' + ${approve_tx} + ',' + ${erc20addr} + ');'">Create Tip</button></div>
+<div><button class="btn-lg btn-primary" th:attr="onclick='components(' + ${erc20val} + ',' + ${tx_bytes} + ',' + ${contract_address} + ',' + ${eth} + ',' + ${gas_price} + ',' + ${gas_limit} + ',' + ${expected_id} + ',' + ${expected_text} + ',' + ${approve_tx} + ',' + ${erc20addr} + ', false);'">Create Tip</button></div>
 <script>
+
+    let timeout;
 
         function components(erc20val, txData, contractAddr, eth, txGasPrice, txGasLimit, expectedId, expectedChainText, approveTx, erc20addr)
         {
+            if (timeout) return;
+            timeout = setTimeout(function() {
+                timeout = undefined;
+            }, 1000);
+
             var erc20layout = document.getElementById('erc20layout');
 
             var account = web3.eth.coinbase;
