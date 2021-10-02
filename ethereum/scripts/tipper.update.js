@@ -25,8 +25,8 @@ const { createWalletsAndAddresses, ethersDebugMessages } = require('./inc/lib');
     }
 
     try {
-        const newProxyTipper = await upgrades.upgradeProxy(ProxyTipperAddress, TwitterTipper.connect(rinkebyDeployKey2)); //.connect(rinkebyDeployKey)
-        await newProxyRetort.deployed();
+        const newProxyTipper = await upgrades.upgradeProxy(ProxyTipperAddress, TwitterTipper.connect(rinkebyDeployKey2));
+        await newProxyTipper.deployed();
         console.log("[PROXY & LOGIC CONTRACTS] --> TwitterTipper Logic Contract Upgraded");
     } catch (e) {
         ethersDebugMessages('TwitterTipper upgrade FAILED', e)
