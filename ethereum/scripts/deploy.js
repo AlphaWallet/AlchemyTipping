@@ -17,6 +17,7 @@ const { createWalletsAndAddresses, ethersDebugMessages } = require('./inc/lib');
 
     const TwitterTipper = await ethers.getContractFactory("TipOffer");
     const proxyTipper = await upgrades.deployProxy(TwitterTipper,[verifyAttestation.address] ,{ kind: 'uups' });
+    //const proxyRetort = await upgrades.deployProxy(AlchemyRetort.connect(retortDeployKey),[verifyAttestation.address, dvp.address, proxyRemix.address] ,{ kind: 'uups' });
     await proxyTipper.deployed();
 
     //set contract to use debug attestation key

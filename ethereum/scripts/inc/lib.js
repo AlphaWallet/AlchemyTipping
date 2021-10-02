@@ -1,8 +1,9 @@
 const { ethers } = require("hardhat");
 require("dotenv").config();
-const { PRIVATE_KEY_RINKEBY } = process.env;
+const { PRIVATE_KEY, PRIVATE_KEY_RINKEBY } = process.env;
 
 const env_keys_required = [
+    "PRIVATE_KEY",
     "PRIVATE_KEY_RINKEBY"
 ];
 
@@ -50,8 +51,10 @@ async function createWalletsAndAddresses(provider){
     const [owner] = await ethers.getSigners();
 
     const rinkebyDeployKey = new ethers.Wallet(PRIVATE_KEY_RINKEBY, provider);
+    const rinkebyDeployKey2 = new ethers.Wallet(PRIVATE_KEY, provider);
 
     console.log( 'rinkebyDeployKey address ' , rinkebyDeployKey.address);
+    console.log( 'rinkebyDeployKey2 address ' , rinkebyDeployKey2.address);
 
     const { chainId } = await ethers.provider.getNetwork()
 
@@ -84,7 +87,8 @@ async function createWalletsAndAddresses(provider){
 
 
     return {
-        rinkebyDeployKey
+        rinkebyDeployKey,
+        rinkebyDeployKey2
     }
 
 }
