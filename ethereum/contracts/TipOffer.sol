@@ -248,6 +248,17 @@ contract TipOffer is TipOfferData, Initializable, UUPSUpgradeable, OwnableUpgrad
             tips[index].completed = (tip.adrPayee != address(0));
         }
     }
+
+    function getTipStatus(uint256[] memory tipIds) external view 
+        returns (bool[] memory completed)
+    {
+        completed = new bool[](tipIds.length);
+        for (uint256 index = 0; index < tipIds.length; index++)
+        {
+            Tip memory tip = _tips[tipIds[index]];
+            completed[index] = (tip.adrPayee != address(0));
+        }
+    }
     
     // Need to implement this to receive ERC721 Tokens
     function onERC721Received(address, address, uint256, bytes calldata) external pure returns(bytes4) 

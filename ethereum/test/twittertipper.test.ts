@@ -267,6 +267,7 @@ describe("TwitterTipper.deploy", function () {
             });
 
             await showTips([8, 9, 10]);
+            await showTipStatus([5,6,7,8,9,10]);
 
             //finally claim all the tips we are allowed to
             const transactionData4 = await proxyTipper.connect(addr1).collectTip([8,9,10], universalIdAttestation);
@@ -279,6 +280,7 @@ describe("TwitterTipper.deploy", function () {
             console.log("StableCoin Subject Bal: " + testAddrBal);
 
             await showTips([8, 9, 10]);
+            await showTipStatus([5,6,7,8,9,10]);
         }
     });
 
@@ -320,6 +322,20 @@ describe("TwitterTipper.deploy", function () {
                 let amount :BigNumber = thisTip.paymentTokens[i].amount;
                 console.log("ERC20 Token: " + erc20Address + " (" + amount + ")");
             } 
+        }
+
+        console.log("-----");
+    }
+
+    async function showTipStatus(tipId: number[])
+    {
+        console.log("-----");
+        console.log("Batch Query Tip Status: " + tipId);
+        let tips = await proxyTipper.getTipStatus(tipId);
+
+        for (let i = 0; i < tips.length; i++) {
+            let thisTipStatus = tips[i];
+            console.log("tipId: " + tipId[i] + " Complete? " + thisTipStatus);
         }
 
         console.log("-----");
