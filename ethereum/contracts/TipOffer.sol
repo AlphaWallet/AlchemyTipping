@@ -64,8 +64,8 @@ contract TipOffer is TipOfferData, Initializable, UUPSUpgradeable, OwnableUpgrad
     // error occurs, either the smart contract has already lost money
     // unaccounted for, or an attack was attempted
     error InsufficientBalance(uint256 tipId);
-    error CommitmentPayoutFailed(uint256 tipId);
-    error CommissionPayoutFailed(uint256 tipId);
+    error TipPayoutFailed(address beneficiary);
+    error CommissionPayoutFailed(address beneficiary);
     error CallerNotAuthorised();
     error PayingOutBeforeOfferTaken();
 
@@ -161,52 +161,55 @@ contract TipOffer is TipOfferData, Initializable, UUPSUpgradeable, OwnableUpgrad
         (passedVerification, subjectAddress) = verifier.checkAttestationValidity(coSignedAttestation, identifier,  _attestorAddress);
         require(passedVerification, "Invalid Attestation used");
 
+        uint256 cumulativeWeiValue = 0;
         for (uint256 index = 0; index < tipIds.length; index++)
         {
             uint256 tipId = tipIds[index];
             require(_tips[tipId].adrPayee == address(0), "Tip already collected");
             if (index > 0) { require(checkIdentifier(identifier, _tips[tipId].identifier), "Not your tip"); }
+            uint256 ethValue = _tips[tipId].amtPayable;
+            _tips[tipId].amtPayable = 0; //prevent re-entrancy; if we hit a revert this is unwound
+            if (_tips[tipId].paymentTokens.length > 0) payTokens(_tips[tipId], tipId, subjectAddress, _tipFeePercentage);
             _tips[tipId].adrPayee = subjectAddress;
-            pay(tipId, subjectAddress, _tipFeePercentage);
+            cumulativeWeiValue += ethValue; //add after we pay tokens, in case payTokens reverted
         }
+
+        //Pay ETH in one transaction to save gas
+        payEth(cumulativeWeiValue, subjectAddress, _tipFeePercentage);
 
         emit CollectTips(_tips[0].identifier, subjectAddress);
     }
 
-    function pay(uint256 tipId, address payable beneficiary, uint256 commissionMultiplier) internal
+    function payEth(uint256 cumulativeTip, address payable beneficiary, uint256 commissionMultiplier) internal
     {
-        uint256 ethValue = _tips[tipId].amtPayable;
-        _tips[tipId].amtPayable = 0; //prevent re-entrancy; if we hit a revert this is unwound
-        
-        if (_tips[tipId].adrPayee == address(0)) {
-            revert PayingOutBeforeOfferTaken();
-        }
-
         bool paymentSuccessful;
-        if (ethValue > 0)
+        if (cumulativeTip > 0)
         {
-            uint256 commissionWei = (ethValue * commissionMultiplier)/10000;
+            uint256 commissionWei = (cumulativeTip * commissionMultiplier)/10000;
 
             if (commissionWei > 0)
             {
                 (paymentSuccessful, ) = owner().call{value: commissionWei}(""); //commission
                 if (!paymentSuccessful) {
-                    revert CommissionPayoutFailed(tipId);
+                    revert CommissionPayoutFailed(beneficiary);
                 }
             }
 
-            (paymentSuccessful, ) =  beneficiary.call{value: (ethValue - commissionWei)}(""); //payment to signer
+            (paymentSuccessful, ) =  beneficiary.call{value: (cumulativeTip - commissionWei)}(""); //payment to signer
             if (!paymentSuccessful) {
-                revert CommitmentPayoutFailed(tipId);
+                revert TipPayoutFailed(beneficiary);
             }
         }
-        
+    }
+
+    function payTokens(Tip memory thisTip, uint256 tipId, address payable beneficiary, uint256 commissionMultiplier) internal
+    {        
         // Transfer ERC20 payments - these will have been stored within this contract, and are moving to the payee
         // Note that this may change in future, we may want a single move from token owner's account to the payee
-        for (uint256 index = 0; index < _tips[tipId].paymentTokens.length; index++)
+        for (uint256 index = 0; index < thisTip.paymentTokens.length; index++)
         {
-            IERC20Upgradeable tokenContract = IERC20Upgradeable(_tips[tipId].paymentTokens[index].erc20);
-            uint256 transferVal = _tips[tipId].paymentTokens[index].amount;
+            IERC20Upgradeable tokenContract = IERC20Upgradeable(thisTip.paymentTokens[index].erc20);
+            uint256 transferVal = thisTip.paymentTokens[index].amount;
             _tips[tipId].paymentTokens[index].amount = 0; //zeroise to avoid re-entrancy attacks
             if (commissionMultiplier > 0)
             {
@@ -261,7 +264,8 @@ contract TipOffer is TipOfferData, Initializable, UUPSUpgradeable, OwnableUpgrad
     {
         require(msg.sender == _tips[tipId].offerer, "Must be tip owner");
 
-        pay(tipId, payable(msg.sender), 0);
+        payTokens(_tips[tipId], tipId, payable(_tips[tipId].offerer), 0);
+        payEth(_tips[tipId].amtPayable, payable(_tips[tipId].offerer), 0);
 
         //emit event to aid bookkeeping
         emit CancelTip(_tips[tipId].offerer, _tips[tipId].identifier, tipId);
