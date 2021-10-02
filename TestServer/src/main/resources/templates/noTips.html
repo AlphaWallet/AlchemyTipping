@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:th="http://www.thymeleaf.org">
+<html xmlns="http://www.w3.org/1999/xhtml">
 <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no"/>
 <head>
     <!-- Latest compiled and minified CSS -->
@@ -25,15 +25,6 @@
         p.ex {
              color: red;
         }
-        .b1, .b2 {
-            display:inline-block;
-            position: relative;
-            margin: 5px;
-            float:left;
-            width: calc(50% - 10px);
-            height:400px;
-            background-color: lightgrey;
-        }
     </style>
 </head>
 <body>
@@ -41,35 +32,13 @@
     <h1>Alchemy Twitter Tipping</h1>
 </div>
 <div id="bodyWrap">
-    <div><button class="btn-lg btn-primary" th:attr="onclick='claim();'">Claim a Tip</button></div>
-    <h4>NB: Does not work on MetaMask yet (coming soon!) --- please use AlphaWallet, Trust or other provider based web3 wallet</h4>
-    <div th:if="${scriptError}">
-        Script is too short.
-    </div>
-    <h4>Twitter Handle</h4>
-    <div th:if="${unknownUser}">
-        <p class="ex">Unknown Twitter User, try a different name</p>
-    </div>
-    <input id="identifier" type="text" name="identifier" th:value="${userinput}" onkeyup="return forceLower(this);"/>
+    <h2>Unfortunately no one has sent you any tips :(</h2>
     <br/>
     <br/>
-    <input type="hidden" name="paramName" value="paramName"/>
-    <h4>Tip Amount: Eth (eg 0.01 -> )</h4>
-    <div th:if="${requiretip}">
-        <p class="ex">Require eth value or ERC20 token</p>
-    </div>
-    <input id="ethAmount" type="number" name="ethAmount"/>
-    <br/>
-    <br/>
-    <h4>ERC20 Token Tip Address (leave blank for no ERC20)</h4>
-    <!-- <input id="erc20addr" type="text" name="erc20address" th:value="${gas_price}" /> -->
-    <input id="erc20Address" type="text" name="erc20Address"/>
-    <h4>ERC20 Amount (decimal corrected): (eg 1.00 -> )</h4>
-    <input id="erc20Amount" type="number" name="erc20Amount"/>
-    <br/>
-    <br/>
-    <div><button class="btn-lg btn-primary" th:attr="onclick='throttle(generateCode(), 500);'">Validate Tip</button></div>
-    <h4>Don't have an Ethereum wallet? Use AlphaWallet: </h4>
+    <h5>However, you can send a tip to anyone on Twitter back on the main page:</h5>
+
+    <div id="claim_tip"><button class="btn-lg btn-primary" onclick='throttle(jumpBack(), 1000);'>Create Tip</button></div>
+    <h4>Don't have an Ethereum wallet to check your tip balance? Check your tips on AlphaWallet:</h4>
     <p id="download_app">
         <a href="https://play.google.com/store/apps/details?id=io.stormbird.wallet">
             <img width="117" height="40" alt="Google Playstore"
@@ -82,27 +51,6 @@
     </p>
 </div>
 <script>
-    function connect () {
-        if (typeof ethereum !== 'undefined') {
-           ethereum.enable()
-            .catch(console.error)
-        }
-    }
-
-    function createOffer()
-    {
-        var account = web3.eth.coinbase;
-        if (!account) return connect()
-        window.location.href = '/createOffer/' + account;
-    }
-
-    function signOffer()
-    {
-        var account = web3.eth.coinbase;
-        if (!account) return connect()
-        window.location.href = '/signOffer/' + account;
-    }
-
     let timeout;
     const throttle = (func, limit) => {
         if (!timeout) {
@@ -113,25 +61,9 @@
         }
     };
 
-    function generateCode()
+    function jumpBack()
     {
-        var account = web3.eth.coinbase;
-        if (!account) return connect()
-        var twitterName = document.getElementById("identifier").value;
-        var eth = document.getElementById("ethAmount").value;
-        var erc20Addr = document.getElementById("erc20Address").value;
-        var erc20Amount = document.getElementById("erc20Amount").value;
-
-        if (eth === '') eth = '0';
-        if (erc20Addr === '') erc20Addr = 'VV';
-        if (erc20Amount === '') erc20Amount = '0';
-
-        window.location.href = '/createTipTx/' + twitterName + '/' + eth + '/' + erc20Addr + '/' + erc20Amount;
-    }
-
-    function claim()
-    {
-        window.location.href = '/claim';
+        window.location.href = '/';
     }
 </script>
 </body>

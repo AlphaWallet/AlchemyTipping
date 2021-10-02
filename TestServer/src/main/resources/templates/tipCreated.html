@@ -31,9 +31,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 
-<body th:attr="onload='showQR(' + ${result_hash} + ',' + ${collection_url} + ')'">
-<div class="jumbotron">
-    <h1>Tip created!</h1>
+<body th:attr="onload='showQR(' + ${result_hash} + ',' + ${collection_url} + ',' + ${check_url} + ')'">
+<div class="jumbotron" id="title">
+    <h1>Tip Posted</h1>
 </div>
 <br/>
 <br/>
@@ -42,6 +42,7 @@
 <br/>
 <p class="l1" id="qrcode"></p>
 <br/>
+<div id="tip_status"></div>
 <h4>Don't have an Ethereum wallet? Use AlphaWallet: </h4>
 <p id="download_app">
     <a href="https://play.google.com/store/apps/details?id=io.stormbird.wallet">
@@ -54,16 +55,48 @@
     </a>
 </p>
 <script>
-        function showQR(txHash, collectionUrl) {
 
-            var qrc = new QRCode(document.getElementById("qrcode"), {
+    function showQR(txHash, collectionUrl, checkUrl)
+    {
+        var qrc = new QRCode(document.getElementById("qrcode"), {
                     text: collectionUrl,
                     width: 200,
                     height: 200,
             });
 
-            document.getElementById("url").innerHTML = collectionUrl;
-        }
+        document.getElementById("url").innerHTML = collectionUrl;
+
+        document.getElementById("tip_status").innerHTML = "Tip is still being written to BlockChain - will not be visible yet";
+        checkTx(txHash, checkUrl);
+    }
+
+    function checkTx(txHash, checkUrl)
+    {
+        //see if wait is over:
+        setTimeout(function() {
+            fetch(checkUrl + txHash)
+                .then(handleErrors)
+                .then(function (response) {
+                    if (response == "written")
+                    {
+                        document.getElementById("tip_status").innerHTML = "Tip transaction is written, tip will now be visible";
+                        document.getElementById("title").innerHTML = "<h1>Tip Live!</h1>";
+                    }
+                    else
+                    {
+                        checkTx(txHash, checkUrl);
+                    }
+                })
+        }, 5000);
+    }
+
+        function handleErrors(response) {
+            if (!response.ok) {
+                console.log(response);
+            }
+            return response.text();
+         }
+
         </script>
 
 

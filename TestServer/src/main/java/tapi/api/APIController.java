@@ -14,7 +14,9 @@ import org.bouncycastle.jcajce.provider.digest.Keccak;
 import org.jetbrains.annotations.Nullable;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.util.StreamUtils;
@@ -31,6 +33,7 @@ import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.DefaultBlockParameter;
 import org.web3j.protocol.core.DefaultBlockParameterName;
 import org.web3j.protocol.core.methods.request.EthFilter;
+import org.web3j.protocol.core.methods.request.Transaction;
 import org.web3j.protocol.core.methods.response.*;
 import org.web3j.protocol.http.HttpService;
 import org.web3j.rlp.RlpEncoder;
@@ -64,10 +67,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SignatureException;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 import static java.lang.Thread.sleep;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
@@ -314,6 +314,20 @@ public class APIController
                 Uint256.class, tipIdVals);
     }
 
+    private Function getTips(List<BigInteger> receivedTipIds)
+    {
+        return new Function("getTips",
+                Arrays.asList(getTipIds(receivedTipIds)),
+                Arrays.<TypeReference<?>>asList(new TypeReference<DynamicArray<TipQuery>>() {}));
+    }
+
+    private Function getTipStatus(List<BigInteger> receivedTipIds)
+    {
+        return new Function("getTipStatus",
+                Arrays.asList(getTipIds(receivedTipIds)),
+                Arrays.<TypeReference<?>>asList(new TypeReference<DynamicArray<Bool>>() {}));
+    }
+
     //This is a ghastly hack, but since this part of web3j is broken this is the most expedient fix.
     //Implementing this in web3js you'd need to call like this:
     //[["Token address","Token amount","0x00"]],"Twitter ID" <-- NB we don't yet implement the 0x00 part. This is pre-auth and will be an auth
@@ -479,6 +493,19 @@ public class APIController
         }
 
         return result;
+    }
+
+    private List callSmartContractFunctionArray(
+            org.web3j.abi.datatypes.Function function, String contractAddress, String address) throws Exception
+    {
+        String value = callSmartContractFunction(getWeb3j(), function, contractAddress, address);
+
+        List<Type> values = FunctionReturnDecoder.decode(value, function.getOutputParameters());
+        if (values.isEmpty()) return null;
+
+        Type T = values.get(0);
+        Object o = T.getValue();
+        return (List) o;
     }
 
     private String callSmartContractFunction(Web3j web3j,
@@ -800,12 +827,32 @@ public class APIController
                              Model model) {
 
         //wait for transaction to be written to block
-        waitForTransactionReceipt(resultHash);
 
         model.addAttribute("result_hash", "'" + resultHash + "'");
         model.addAttribute("collection_url", "'" + deploymentAddress + "claim" + "'");
+        model.addAttribute("check_url", "'" + deploymentAddress + "checkTx/" + "'");
 
         return "tipCreated";
+    }
+
+    //See if transaction has been written
+    @RequestMapping(value = "checkTx/{hash}", method = { RequestMethod.GET, RequestMethod.POST })
+    public ResponseEntity checkTx(@PathVariable("hash") String hash,
+                                        HttpServletRequest request) throws InterruptedException, ExecutionException, IOException {
+        final Web3j web3j = getWeb3j();
+
+        System.out.println("Check for Tx: " + hash);
+        try {
+            EthTransaction etx = web3j.ethGetTransactionByHash(hash).send();
+            if (etx != null && etx.getResult().getBlockNumberRaw() != null && !etx.getResult().getBlockNumberRaw().equals("null")) {
+                System.out.println("Tx written: " + etx.getResult().getHash());
+                return new ResponseEntity<>("written", HttpStatus.CREATED);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return new ResponseEntity<>("waiting", HttpStatus.CREATED);
     }
 
     //
@@ -892,8 +939,6 @@ public class APIController
         }
 
         //get the objects from the session
-        Enumeration<String> attrs = request.getAttributeNames();
-        Enumeration<String> attrs2 = request.getSession().getAttributeNames();
         Twitter twitter = (Twitter) request.getSession().getAttribute("twitter");
         RequestToken requestToken = (RequestToken) request.getSession().getAttribute("requestToken");
 
@@ -1014,16 +1059,19 @@ public class APIController
         return showTipList(identifier, id);
     }
 
-    @GetMapping(value = "/checkTipResults/{id}/{waitCount}")
+    @GetMapping(value = "/checkTipResults/{id}")
     public @ResponseBody String checkTipResults(@PathVariable("id") String id,
-                                                @PathVariable("waitCount") String wait,
                                                   Model model) throws IOException, SignatureException
     {
         Map<BigInteger, Tip> tips = tipUserMap.get(id);
 
         if (tips == null)
         {
-            return waitForTipResults(id, wait);
+            return waitForTipResults(id);
+        }
+        else if (tips.size() == 0)
+        {
+            return loadFile("templates/noTips.html");
         }
         else
         {
@@ -1032,7 +1080,6 @@ public class APIController
             final BigDecimal weiFactor = BigDecimal.TEN.pow(18);
 
             StringBuilder tokenList = new StringBuilder();
-            tipUserMap.remove(id);
 
             for (BigInteger tipId : tips.keySet()) {
                 Tip tip = tips.get(tipId);
@@ -1075,26 +1122,29 @@ public class APIController
           .subscribe()
           .isDisposed();
 
-        return waitForTipResults(id, " ..");
+        return waitForTipResults(id);
     }
 
-    private String waitForTipResults(String id, String wait) {
+    @RequestMapping(value = "getTipResults/{id}", method = { RequestMethod.GET, RequestMethod.POST })
+    public ResponseEntity getTipResults(@PathVariable("id") String id,
+                                        HttpServletRequest request) throws InterruptedException, ExecutionException, IOException
+    {
+        Map<BigInteger, Tip> tips = tipUserMap.get(id);
+
+        if (tips == null)
+        {
+            return new ResponseEntity<>("waiting", HttpStatus.CREATED);
+        }
+        else
+        {
+            return new ResponseEntity<>("pass", HttpStatus.CREATED);
+        }
+    }
+
+    private String waitForTipResults(String id) {
         String initHTML = loadFile("templates/findingTips.html");
 
-        switch (wait)
-        {
-            case " ..":
-                wait = ". .";
-                break;
-            case ". .":
-                wait = ".. ";
-                break;
-            case ".. ":
-                wait = " ..";
-                break;
-        }
-
-        initHTML = initHTML.replaceAll("\\[TIP_SCAN\\]", wait);
+        initHTML = initHTML.replace("[CHECK_URL]", deploymentAddress + "getTipResults/" + id);
         initHTML = initHTML.replace("[USER_ID]", id);
 
         return initHTML;
@@ -1105,6 +1155,7 @@ public class APIController
         Map<BigInteger, Tip> tips = new HashMap<>();
         final Web3j web3j = getWeb3j();
         final Event event = getTipCreateEvent(); //search for 'CreateTip' events
+        List<BigInteger> receivedTipIds = new ArrayList<>();
 
         try {
             DefaultBlockParameter startBlock = DefaultBlockParameterName.EARLIEST;
@@ -1118,12 +1169,7 @@ public class APIController
                     final EventValues eventValues = staticExtractEventParameters(event, (Log) ethLog.get()); //extract offerer, identifier, commitmentId
                     String tipIdStr = eventValues.getIndexedValues().get(2).getValue().toString(); //commitment ID (token ID of offer)
                     BigInteger tipId = new BigInteger(tipIdStr);
-                    Tip thisTip = fetchTipByID(tipId);
-
-                    if (!thisTip.completed)
-                    {
-                        tips.put(tipId, thisTip);
-                    }
+                    receivedTipIds.add(tipId);
                 }
             }
 
@@ -1131,9 +1177,22 @@ public class APIController
             e.printStackTrace();
         }
 
+        //find live tips
+        List<Bool> liveTips = fetchLiveTips(receivedTipIds);
+
+        for (int i = 0; i < receivedTipIds.size(); i++)
+        {
+            BigInteger tipId = receivedTipIds.get(i);
+            Bool tipCompleted = liveTips.get(i);
+            if (!tipCompleted.getValue())
+            {
+                Tip thisTip = fetchTipByID(tipId);
+                tips.put(tipId, thisTip);
+            }
+        }
+
         return tips;
     }
-
 
     //1. Find user's tips
     @GetMapping(value = "/collectTip/{id}")
@@ -1168,6 +1227,7 @@ public class APIController
                 .blockingGet();
 
         model.addAttribute("result_hash", "'" + txHashStr + "'");
+        model.addAttribute("check_url", "'" + deploymentAddress + "checkTx/" + "'");
         return "tipClaimed";
     }
 
@@ -1947,6 +2007,41 @@ public class APIController
 
         //form a commitment
         return new Tip(tipFunc, result);
+    }
+
+    /*private List<BigInteger> fetchLiveTips(List<BigInteger> receivedTipIds)
+    {
+        //fetch the commitment data from the retort contract
+        Function tipFunc = getTips(receivedTipIds);
+        List<TipQuery> result;
+        try
+        {
+            result = callSmartContractFunctionArray(tipFunc, CONTRACT, ZERO_ADDRESS);
+        }
+        catch (Exception e)
+        {
+            e.printStackTrace();
+        }
+
+        return new ArrayList<>();
+    }*/
+
+    private List<Bool> fetchLiveTips(List<BigInteger> receivedTipIds)
+    {
+        //fetch the commitment data from the retort contract
+        Function tipFunc = getTipStatus(receivedTipIds);
+        List<Bool> result;
+        try
+        {
+            result = callSmartContractFunctionArray(tipFunc, CONTRACT, ZERO_ADDRESS);
+        }
+        catch (Exception e)
+        {
+            e.printStackTrace();
+            result = new ArrayList<>();
+        }
+
+        return result;
     }
 
     /*private EthFilter getTransmogrifyEventFilter(Event event, BigInteger commitId)

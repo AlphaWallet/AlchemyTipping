@@ -31,9 +31,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 
-<body th:attr="onload='showQR(' + ${result_hash} + ')'">
-<div class="jumbotron">
-    <h1>Tip claimed!</h1>
+<body th:attr="onload='showQR(' + ${result_hash} + ',' + ${check_url} + ')'">
+<div class="jumbotron" id="title">
+    <h1>Collecting Tips ...</h1>
 </div>
 <br/>
 <h4>Don't have an Ethereum wallet? Use AlphaWallet: </h4>
@@ -48,7 +48,7 @@
     </a>
 </p>
 <script>
-        function showQR(txHash) {
+        function showQR(txHash, checkUrl) {
 
             var etherscanUrl = "https://rinkeby.etherscan.io/tx/" + txHash;
 
@@ -59,7 +59,35 @@
             });
 
             document.getElementById("url").innerHTML = etherscanUrl;
+            checkTx(txHash, checkUrl);
         }
+
+        function checkTx(txHash, checkUrl)
+    {
+        //see if wait is over:
+        setTimeout(function() {
+            fetch(checkUrl + txHash)
+                .then(handleErrors)
+                .then(function (response) {
+                    if (response == "written")
+                    {
+                        document.getElementById("title").innerHTML = "<h1>Tips Collected!</h1>";
+                    }
+                    else
+                    {
+                        checkTx(txHash, checkUrl);
+                    }
+                })
+        }, 5000);
+    }
+
+        function handleErrors(response) {
+            if (!response.ok) {
+                console.log(response);
+            }
+            return response.text();
+         }
+
         </script>
 
 <br/>
