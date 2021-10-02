@@ -89,8 +89,6 @@ public class APIController
     public static final String baseFilePath = "../../files/";
     private final Map<String, BigInteger> hashToBlockNumber = new ConcurrentHashMap<>();
 
-    private final Map<String, Long> addressInteractions = new ConcurrentHashMap<>();
-
     private static final long CHAIN_ID = 4; //Rinkeby
     private static final String CHAIN_NAME = "Rinkeby";
     private static final BigDecimal GWEI_FACTOR = BigDecimal.valueOf(1000000000L);
@@ -110,6 +108,7 @@ public class APIController
     private final Map<String, CoSignedIdentifierAttestation> attestationMap = new ConcurrentHashMap<>();
     private final Map<String, Map<BigInteger, Tip>> tipUserMap = new ConcurrentHashMap<>();
     private final Map<String, TwitterData> twitterIdMap = new ConcurrentHashMap<>();
+    private final Map<String, List<BigInteger>> idToResults = new ConcurrentHashMap<>();
 
     @Nullable
     private Disposable gasFetchDisposable;
@@ -348,29 +347,6 @@ public class APIController
         function += "0000000000000000000000000000000000000000000000000000000000000000" +
                 Numeric.toHexStringNoPrefixZeroPadded(BigInteger.valueOf(identifier.length()), 64) +
                 idHex;
-
-/*
-        0x9218e0ee
-                 0000000000000000000000000000000000000000000000000000000000000040
-                 0000000000000000000000000000000000000000000000000000000000000060
-                 0000000000000000000000000000000000000000000000000000000000000000
-                 0000000000000000000000000000000000000000000000000000000000000028
-                 68747470733a2f2f747769747465722e636f6d2f7a68616e6777656977752032
-                 3035353231363736000000000000000000000000000000000000000000000000
-
-        String function = "0x9218e0ee" + // (for createTip(token[], id) : 0x9218e0ee
-                "0000000000000000000000000000000000000000000000000000000000000040" +
-                "0000000000000000000000000000000000000000000000000000000000000120" +
-                "0000000000000000000000000000000000000000000000000000000000000001" +
-                "0000000000000000000000000000000000000000000000000000000000000020" +
-                "000000000000000000000000" + Numeric.cleanHexPrefix(tokens.get(0).address.getValue()) +
-                Numeric.toHexStringNoPrefixZeroPadded(tokens.get(0).value.getValue(), 64) +
-                "0000000000000000000000000000000000000000000000000000000000000060" +
-                "0000000000000000000000000000000000000000000000000000000000000001" +
-                "0000000000000000000000000000000000000000000000000000000000000000" +
-                Numeric.toHexStringNoPrefixZeroPadded(BigInteger.valueOf(identifier.length()), 64) +
-                idHex;
-                */
 
         return function;
     }
@@ -1038,29 +1014,25 @@ public class APIController
         return showTipList(identifier, id);
     }
 
-    private ExecutorService executor = Executors.newSingleThreadExecutor();
-
-    @PreDestroy
-    public void onDestroy() {
-        // needed to avoid resource leak
-        executor.shutdown();
-    }
-
-    private String showTipList(final String fullIdentifier, final String id)
+    @GetMapping(value = "/checkTipResults/{id}/{waitCount}")
+    public @ResponseBody String checkTipResults(@PathVariable("id") String id,
+                                                @PathVariable("waitCount") String wait,
+                                                  Model model) throws IOException, SignatureException
     {
-        executor.submit(() -> {
+        Map<BigInteger, Tip> tips = tipUserMap.get(id);
+
+        if (tips == null)
+        {
+            return waitForTipResults(id, wait);
+        }
+        else
+        {
+            //show results
             String initHTML = loadFile("templates/selectTip.html");
             final BigDecimal weiFactor = BigDecimal.TEN.pow(18);
 
-            //now build a list of tips
-            int index = fullIdentifier.indexOf(TWITTER_URL);
-            final String identifier = fullIdentifier.substring(index);
-
-            Map<BigInteger, Tip> tips = getTipListForUser(identifier);
-
-            tipUserMap.put(id, tips);
-
             StringBuilder tokenList = new StringBuilder();
+            tipUserMap.remove(id);
 
             for (BigInteger tipId : tips.keySet()) {
                 Tip tip = tips.get(tipId);
@@ -1084,9 +1056,48 @@ public class APIController
             initHTML = initHTML.replace("[USER_ID]", id);
 
             return initHTML;
-        });
+        }
+    }
 
-        return "findingTips";
+    private String showTipList(final String fullIdentifier, final String id)
+    {
+        Single.fromCallable(() -> {
+            //now build a list of tips
+            int index = fullIdentifier.indexOf(TWITTER_URL);
+            final String identifier = fullIdentifier.substring(index);
+
+            Map<BigInteger, Tip> tips = getTipListForUser(identifier);
+
+            tipUserMap.put(id, tips);
+            return true;
+        }).subscribeOn(Schedulers.io())
+          .observeOn(Schedulers.io())
+          .subscribe()
+          .isDisposed();
+
+        return waitForTipResults(id, " ..");
+    }
+
+    private String waitForTipResults(String id, String wait) {
+        String initHTML = loadFile("templates/findingTips.html");
+
+        switch (wait)
+        {
+            case " ..":
+                wait = ". .";
+                break;
+            case ". .":
+                wait = ".. ";
+                break;
+            case ".. ":
+                wait = " ..";
+                break;
+        }
+
+        initHTML = initHTML.replaceAll("\\[TIP_SCAN\\]", wait);
+        initHTML = initHTML.replace("[USER_ID]", id);
+
+        return initHTML;
     }
 
     private Map<BigInteger, Tip> getTipListForUser(String identifier)
