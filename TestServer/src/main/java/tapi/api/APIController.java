@@ -868,7 +868,7 @@ public class APIController
     //5. TODO: Batch collect tips
 
     public Twitter getTwitter() {
-        Twitter twitter = null;
+        Twitter twitter;
 
         //build the configuration
         ConfigurationBuilder builder = new ConfigurationBuilder();
