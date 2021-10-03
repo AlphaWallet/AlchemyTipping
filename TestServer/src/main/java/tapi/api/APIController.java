@@ -33,7 +33,6 @@ import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.DefaultBlockParameter;
 import org.web3j.protocol.core.DefaultBlockParameterName;
 import org.web3j.protocol.core.methods.request.EthFilter;
-import org.web3j.protocol.core.methods.request.Transaction;
 import org.web3j.protocol.core.methods.response.*;
 import org.web3j.protocol.http.HttpService;
 import org.web3j.rlp.RlpEncoder;
@@ -52,7 +51,6 @@ import twitter4j.auth.RequestToken;
 import twitter4j.conf.Configuration;
 import twitter4j.conf.ConfigurationBuilder;
 
-import javax.annotation.PreDestroy;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.*;
@@ -67,7 +65,9 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SignatureException;
 import java.util.*;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 import static java.lang.Thread.sleep;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
@@ -81,10 +81,6 @@ public class APIController
 {
     private static final String CONTRACT = "0xE6aAf7C1bBD92B6FFa76ADF47816572EC9f5Ba76";
     private static final String ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-    private static final String ERC20_CONTRACT = "0x792A5dF74641bE309146F4D5cF99D61dd78bAF08";
-    private static final BigDecimal DAI_WEI_FACTOR = BigDecimal.valueOf(1000000000000000000L);
-
-    public static final String PERSONAL_MESSAGE_PREFIX = "\u0019Ethereum Signed Message:\n";
 
     public static final String baseFilePath = "../../files/";
     private final Map<String, BigInteger> hashToBlockNumber = new ConcurrentHashMap<>();
@@ -100,15 +96,17 @@ public class APIController
 
     private final String CONTRACT_KEY;
     private final String INFURA_KEY;
+    private final String ATTESTATION_KEY;
+    private final String TWITTER_API_KEY;
+    private final String TWITTER_KEY_SECRET;
+    private final String TWITTER_BEARER_TOKEN;
     private final String deploymentAddress;
 
-    public final static String TWITTER_FAKE_UID = "12345678";
     public final static String TWITTER_URL = "https://twitter.com/";
 
     private final Map<String, CoSignedIdentifierAttestation> attestationMap = new ConcurrentHashMap<>();
     private final Map<String, Map<BigInteger, Tip>> tipUserMap = new ConcurrentHashMap<>();
     private final Map<String, TwitterData> twitterIdMap = new ConcurrentHashMap<>();
-    private final Map<String, List<BigInteger>> idToResults = new ConcurrentHashMap<>();
 
     @Nullable
     private Disposable gasFetchDisposable;
@@ -120,7 +118,11 @@ public class APIController
         String[] sep = keys.split(",");
         INFURA_KEY = sep[0];
         CONTRACT_KEY = sep[1];
-        if (sep.length > 2 && !sep[2].equals("END_DATA"))
+        ATTESTATION_KEY = sep[3];
+        TWITTER_API_KEY = sep[4];
+        TWITTER_KEY_SECRET = sep[5];
+        TWITTER_BEARER_TOKEN = sep[6];
+        if (sep.length > 7 && !sep[7].equals("END_DATA"))
         {
             deploymentAddress = sep[2];
         }
@@ -129,7 +131,7 @@ public class APIController
             deploymentAddress = "http://192.168.50.9:8081/";
         }
 
-        AttestationHandler.setupKeys();
+        AttestationHandler.setupKeys(ATTESTATION_KEY);
         //start gas price cycle
         gasFetchDisposable = Observable.interval(0, 30, TimeUnit.SECONDS)
                 .doOnNext(l -> getGasPriceGWEI()).subscribe();
@@ -791,7 +793,7 @@ public class APIController
                     .url(urlCall)
                     .method("GET", null)
                     .addHeader("Content-Type", "application/x-www-form-urlencoded")
-                    .addHeader("Authorization", "Bearer AAAAAAAAAAAAAAAAAAAAALVlUAEAAAAAsS9ZXEMt64%2F1ZNopo79kb%2FreXY4%3DNN5w5MDZtYftaMnw6cZVsjKacyGSs5TcdaMiAIzAAd2s7E36gI")
+                    .addHeader("Authorization", "Bearer " + TWITTER_BEARER_TOKEN)
                     .build();
 
             okhttp3.Response response = client.newCall(request).execute();
@@ -868,14 +870,10 @@ public class APIController
     public Twitter getTwitter() {
         Twitter twitter = null;
 
-        //set the consumer key and secret for our app
-        String consumerKey = "OfPvp7JebQILnzYlfFRwRhTYg";
-        String consumerSecret = "lDla1s3JIluPGUgEPVAVsgZkYrldiED9olpIrrm33QNVTWAGiv";
-
         //build the configuration
         ConfigurationBuilder builder = new ConfigurationBuilder();
-        builder.setOAuthConsumerKey(consumerKey);
-        builder.setOAuthConsumerSecret(consumerSecret);
+        builder.setOAuthConsumerKey(TWITTER_API_KEY);
+        builder.setOAuthConsumerSecret(TWITTER_KEY_SECRET);
 
         Configuration configuration = builder.build();
 

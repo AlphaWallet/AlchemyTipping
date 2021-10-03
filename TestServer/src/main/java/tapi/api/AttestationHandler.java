@@ -1,27 +1,44 @@
 package tapi.api;
 
 import org.bouncycastle.crypto.AsymmetricCipherKeyPair;
-import org.bouncycastle.crypto.params.AsymmetricKeyParameter;
+import org.bouncycastle.crypto.generators.ECKeyPairGenerator;
+import org.bouncycastle.crypto.params.*;
+import org.web3j.crypto.ECKeyPair;
+import org.web3j.crypto.Sign;
+import org.web3j.utils.Numeric;
 import tapi.api.crypto.*;
 import tapi.api.crypto.core.SignatureUtility;
 
 import java.io.IOException;
 import java.security.SecureRandom;
 
-import static tapi.api.APIController.TWITTER_FAKE_UID;
-import static tapi.api.APIController.TWITTER_URL;
+import static tapi.api.crypto.core.SignatureUtility.ECDSA_DOMAIN;
 
 public class AttestationHandler {
     private static AsymmetricCipherKeyPair attestorKeys;
     private static SecureRandom rand;
 
-    public static void setupKeys()
+    public static void setupKeys(String keyHex)
     {
         try {
             rand = SecureRandom.getInstance("SHA1PRNG");
             rand.setSeed("seed".getBytes());
             AsymmetricCipherKeyPair dud = SignatureUtility.constructECKeys(rand);
             attestorKeys = SignatureUtility.constructECKeys(rand);
+
+            ECKeyPair attestationKeyPair = ECKeyPair.create(Numeric.toBigInt(keyHex));
+
+            ECKeyPairGenerator generator = new ECKeyPairGenerator();
+            ECDomainParameters params = ECDSA_DOMAIN;
+            //ECKeyGenerationParameters keygenParams = new ECKeyGenerationParameters(ECDSA_DOMAIN, random);
+
+            /*ECPrivateKeyParameters privKey = new ECPrivateKeyParameters(attestationKeyPair.getPrivateKey(), ECDSA_DOMAIN);
+            privKey
+
+            AsymmetricCipherKeyPair asm = new AsymmetricCipherKeyPair(
+                    new ECPublicKeyParameters(Q, ECDSA_DOMAIN),
+                    privKey);*/
+
 
             System.out.println("Attestor Address: " + SignatureUtility.addressFromKey(attestorKeys.getPublic()));
 
@@ -42,28 +59,5 @@ public class AttestationHandler {
         IdentifierAttestation att = new IdentifierAttestation(id, identifier, subjectPublicKey); //  makePublicIdAttestation(subjectPublicKey, "TW", identifier);
         SignedIdentifierAttestation signedAttestation = new SignedIdentifierAttestation(att, attestorKeys);
         return signedAttestation;
-    }
-
-    public static NFTAttestation createNFTAttestation(SignedIdentifierAttestation att, ERC721Token[] attestingTokens)
-    {
-        tapi.api.crypto.ethereum.ERC721Token[] tokens = new tapi.api.crypto.ethereum.ERC721Token[attestingTokens.length];
-        for (int index = 0; index < attestingTokens.length; index++)
-        {
-            tokens[index] = new tapi.api.crypto.ethereum.ERC721Token(attestingTokens[index].address.getValue(),
-                    attestingTokens[index].tokenId.getValue());
-        }
-        return new NFTAttestation(att, tokens);
-    }
-
-    public static NFTAttestation createNFTAttestation(byte[] derEncodingNFTAttestation) throws IOException
-    {
-        return new NFTAttestation(derEncodingNFTAttestation, attestorKeys.getPublic());
-    }
-
-    public static Attestation makePublicIdAttestation(AsymmetricKeyParameter key, String type, String identifier) {
-        IdentifierAttestation att = new IdentifierAttestation(type, identifier, key);
-        att.setIssuer("CN=ALPHAWALLET");
-        att.setSerialNumber(1);
-        return att;
     }
 }
