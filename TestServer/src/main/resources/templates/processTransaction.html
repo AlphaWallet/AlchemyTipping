@@ -27,8 +27,8 @@
     </style>
 </head>
 <!--<body th:attr="onload='components(' + ${erc20val} + ',' + ${tx_bytes} + ',' + ${contract_address} + ',' + ${gas_price} + ',' + ${gas_limit} + ',' + ${expected_id} + ',' + ${expected_text} + ');'">-->
-<!--<body th:attr="onload='components(' + ${erc20val} + ',' + ${tx_bytes} + ',' + ${contract_address} + ',' + ${eth} + ',' + ${gas_price} + ',' + ${gas_limit} + ',' + ${expected_id} + ',' + ${expected_text} + ',' + ${approve_tx} + ',' + ${erc20addr} + ', true);'">-->
-<body>
+<body th:attr="onload='checkComponents(' + ${erc20val} + ');'">
+
 <div class="jumbotron">
     <h1>Alchemy Twitter Tipping</h1>
     <div id="bodyWrap">
@@ -52,19 +52,34 @@
     </div>
 </div>
 <br/>
-<div><button class="btn-lg btn-primary" th:attr="onclick='components(' + ${erc20val} + ',' + ${tx_bytes} + ',' + ${contract_address} + ',' + ${eth} + ',' + ${gas_price} + ',' + ${gas_limit} + ',' + ${expected_id} + ',' + ${expected_text} + ',' + ${approve_tx} + ',' + ${erc20addr} + ', false);'">Create Tip</button></div>
+<div id="approve_btn"><button class="btn-lg btn-primary" th:attr="onclick='approve(' + ${erc20val} + ',' + ${erc20addr} + ',' + ${gas_limit} + ',' + ${gas_price} + ',' + ${expected_id} + ',' + ${expected_text} + ',' + ${approve_tx} +');'">Approve ERC20 for Tip</button></div>
+<div id="create_tip_btn"><button class="btn-lg btn-primary" th:attr="onclick='createTipTx(' + ${tx_bytes} + ',' + ${contract_address} + ',' + ${eth} + ',' + ${gas_price} + ',' + ${gas_limit} + ',' + ${expected_id} + ',' + ${expected_text} + ');'">Create Tip</button></div>
 <script>
 
     let timeout;
 
-        function components(erc20val, txData, contractAddr, eth, txGasPrice, txGasLimit, expectedId, expectedChainText, approveTx, erc20addr)
+        function checkComponents(erc20val)
+        {
+            var erc20layout = document.getElementById('erc20layout');
+            var approveBtnLayout = document.getElementById('approve_btn');
+            var createTipBtnLayout = document.getElementById('create_tip_btn');
+            if (erc20val == 0)
+            {
+                erc20layout.style.display = 'none' ;
+                approveBtnLayout.style.display = 'none' ;
+            }
+            else
+            {
+                createTipBtnLayout.style.display = 'none' ;
+            }
+        }
+
+        function approve(erc20val, erc20addr, txGasLimit, txGasPrice, expectedId, expectedChainText, approveTx)
         {
             if (timeout) return;
             timeout = setTimeout(function() {
                 timeout = undefined;
             }, 1000);
-
-            var erc20layout = document.getElementById('erc20layout');
 
             var account = web3.eth.coinbase;
             if (!account) return connect()
@@ -75,14 +90,14 @@
             {
                alert("Please set your dapp browser to use the " + expectedChainText + " Network.");
             }
-            else if (erc20val == 0)
-            {
-                erc20layout.style.display = 'none' ;
-                completeTipTx(txData, contractAddr, eth, txGasPrice, txGasLimit);
-            }
-            else
-            {
-                web3.eth.sendTransaction({
+
+            var approveBtnLayout = document.getElementById('approve_btn');
+            var createTipBtnLayout = document.getElementById('create_tip_btn');
+
+            approveBtnLayout.style.display = 'none';
+            createTipBtnLayout.style.display = 'block';
+
+            web3.eth.sendTransaction({
                     from: account,
                     to: erc20addr,
                     value: 0,
@@ -90,11 +105,29 @@
                     gasPrice: txGasPrice,
                     data: approveTx
                 },function(error, result){
-                if(!error)
-                    completeTipTx(txData, contractAddr, eth, txGasPrice, txGasLimit);
-                else
-                    window.location.replace('/errorFinal/' + error);
+                    //
                 });
+        }
+
+        function createTipTx(txData, contractAddr, eth, txGasPrice, txGasLimit, expectedId, expectedChainText)
+        {
+            if (timeout) return;
+            timeout = setTimeout(function() {
+                timeout = undefined;
+            }, 1000);
+
+            var account = web3.eth.coinbase;
+            if (!account) return connect()
+
+            var networkId = web3.version.network;
+
+            if (networkId != expectedId)
+            {
+               alert("Please set your dapp browser to use the " + expectedChainText + " Network.");
+            }
+            else
+            {
+                completeTipTx(txData, contractAddr, eth, txGasPrice, txGasLimit);
             }
         }
 
