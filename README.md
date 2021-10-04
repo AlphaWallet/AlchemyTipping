@@ -80,6 +80,21 @@ This can be determined by doing an ```estimateGas``` call to a node and seeing i
 ```getTip(uint256 tipId) returns (PaymentToken[] memory paymentTokens, address offerer, uint256 weiValue, string memory identifier, address payee, bool completed)```
 
  Gives you extended details of the current tips.
+ 
+ ```getTips(uint256[] tipId) returns (TipQuery[] memory tips)```
+ ```
+     struct TipQuery {
+        PaymentToken[] paymentTokens;
+        uint256 weiValue;
+        bool completed; // authorisation; null if underlying contract doesn't support it
+    }
+ ```
+
+ Queries an array of TipIDs to give the collected/live status of a tip along with its value.
+ 
+ ```getTipStatus(uint256[] tipIds) returns (bool[] completed)```
+
+ Gives you the completed/available status of an array of Tip IDs
 
 ```cancelTip(uint256 tipId)```
 
