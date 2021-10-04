@@ -5,7 +5,7 @@ Deployment Instructions:
 
 Build:
 
-```./gradlew build```
+```./gradle build```
 
 Deploy:
 
@@ -18,13 +18,13 @@ You will need to add the keys.secret to the directory above the root of the gith
 /Dev/AlchemyTipping/TestServer/build.gradle 
 /Dev/keys.secret  <---
 
-The keys.secret format is like this:
-[Infura API key],[private key with Rinkeby on it],[root URL where you deploy],END_DATA
+The keys.secret format is a simple CSV like this:
+[Infura API key],[private key with Rinkeby on it to pay gas],[root URL where you deploy],[Attestation Eth Private Key Hex],[Twitter API Key],[Twitter API Secret],[Twitter Bearer Token],END_DATA
 
 eg:
-```876876aa878a787a878a787878b787b,87236487236487236478236478236487236487236487236487236487623487263487,http:///stormbird.duckdns.org/,END_DATA```
+```876876aa878a787a878a787878b787b,87236487236487236478236478236487236487236487236487236487623487263487,http:///stormbird.duckdns.org/,FFFFFF87236487236478236478236487236487236487236487236487623487263487,QweRtyUiop3434QweRtyUiopQ,QweRtyUiop3434QweRtyUiopQQweRtyUiop3434QweRtyUiopQ,AAAAAAAAAAAAAAAAAQweRtyUiop3434QweRtyUiopQ%2QweRtyUiop3434QweRtyUiopQ%3QweRtyUiop3434QweRtyUiopQQweRtyUiop3434Qxxx,END_DATA```
 
-The current contract in Rinkeby is here: ```0x10C663299248548BE18Ab4aEB1bA44C399bDAd84```. It is not yet proxied so it will change once I implement proxy.
+The contract Rinkeby is here: ```0xE6aAf7C1bBD92B6FFa76ADF47816572EC9f5Ba76```.
 
 
 ## How it works
@@ -69,22 +69,12 @@ Where:
 6. Use the signature to build a CoSignedIdentifierAttestation in Attestation.id
 7. Cache the CoSignedIdentifierAttestation against the user's Full Social ID String.
 8. Query the event logs to find all events with matching ```identifier``` for the Full Social ID String. Query 'getTips' for each to determine if the tip is still valid (or use logs below).
-
---- Current Implementation ---
-
-9. Ask user to pick the tip from the available tips
-10. Call the ```collectTip(uint256 tipId, bytes memory coSignedAttestation)```
-
---- Planned Implementation ---
-
 9. Form an array of all the current tips.
 10. Call the ```collectTip(uint256[] tipIds, bytes memory coSignedAttestation)```
 ---
 
 Note 1: In step 10, for the planned implementation there will be a maximum value for the tipId array size. 
 This can be determined by doing an ```estimateGas``` call to a node and seeing if it exceeds the maximum contract call gas. If it exceeds, then try 1/2 of the tips etc.
-
-Note 2: we are planning to subsidise this service with our own gas, so the ```collectTip``` call will be called from the server.
 
 ### Supplementary functions and events
 ```getTip(uint256 tipId) returns (PaymentToken[] memory paymentTokens, address offerer, uint256 weiValue, string memory identifier, address payee, bool completed)```
@@ -106,8 +96,3 @@ Note 2: we are planning to subsidise this service with our own gas, so the ```co
 ```event CancelTip(address indexed offerer, string indexed identifier, uint256 indexed tipId)```
 
  Generated whenever a tip is cancelled.
- 
-## Improvements:
- 
-1. Make array version of ```getTip(uint256[] tipIds)``` which you can use to query multiple IDs simultaneously giving a cut-down response with which tips are valid.
-2. Make array version of ```collectTip(uint256[] tipIds, bytes memory attestation)``` to collect multiple tips as per step 10 above.
